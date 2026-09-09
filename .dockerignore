@@ -1,0 +1,17 @@
+.git
+.gitignore
+.vscode
+.idea
+**/node_modules
+**/dist
+**/.next
+**/*.tsbuildinfo
+**/.env
+**/.env.*
+!**/.env.example
+backup-before-*
+backup-*
+**/__pycache__
+**/*.pyc
+apps/api/storage
+*.log

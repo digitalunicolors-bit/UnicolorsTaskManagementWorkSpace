@@ -1,0 +1,344 @@
+.themeRoot {
+  color-scheme: light;
+  --uc-bg: #F9FAFB;
+  --uc-soft: #DDE8F0;
+  --uc-mid: #4F6F8F;
+  --uc-ink: #252B37;
+  background: var(--uc-bg);
+  color: var(--uc-ink);
+}
+
+/* Workspace palette: graphite + soft blue + cool white surfaces. */
+.themeRoot :global(.bg-slate-50) {
+  background-color: #F9FAFB !important;
+}
+
+.themeRoot :global(.bg-slate-100) {
+  background-color: #DDE8F0 !important;
+}
+
+.themeRoot :global(.bg-slate-200) {
+  background-color: rgb(79 111 143 / 0.14) !important;
+}
+
+.themeRoot :global(.bg-slate-950) {
+  background-color: #252B37 !important;
+}
+
+.themeRoot :global(.bg-blue-600),
+.themeRoot :global(.bg-indigo-600),
+.themeRoot :global(.bg-violet-600) {
+  background-color: #4F6F8F !important;
+}
+
+.themeRoot :global(.hover\:bg-slate-800:hover) {
+  background-color: rgb(37 43 55 / 0.92) !important;
+}
+
+.themeRoot :global(.hover\:bg-blue-700:hover),
+.themeRoot :global(.hover\:bg-indigo-700:hover),
+.themeRoot :global(.hover\:bg-violet-700:hover) {
+  background-color: rgb(79 111 143 / 0.9) !important;
+}
+
+.themeRoot :global(.bg-blue-50),
+.themeRoot :global(.bg-indigo-50),
+.themeRoot :global(.bg-violet-50) {
+  background-color: rgb(221 232 240 / 0.72) !important;
+}
+
+.themeRoot :global(.bg-blue-100),
+.themeRoot :global(.bg-indigo-100),
+.themeRoot :global(.bg-violet-100) {
+  background-color: #DDE8F0 !important;
+}
+
+.themeRoot :global(.text-slate-950),
+.themeRoot :global(.text-slate-900),
+.themeRoot :global(.text-slate-800) {
+  color: #252B37 !important;
+}
+
+.themeRoot :global(.text-slate-700),
+.themeRoot :global(.text-slate-600) {
+  color: rgb(37 43 55 / 0.76) !important;
+}
+
+.themeRoot :global(.text-slate-500),
+.themeRoot :global(.text-slate-400) {
+  color: rgb(37 43 55 / 0.56) !important;
+}
+
+.themeRoot :global(.text-blue-900),
+.themeRoot :global(.text-blue-800),
+.themeRoot :global(.text-blue-700),
+.themeRoot :global(.text-blue-600),
+.themeRoot :global(.text-indigo-900),
+.themeRoot :global(.text-indigo-800),
+.themeRoot :global(.text-indigo-700),
+.themeRoot :global(.text-indigo-600),
+.themeRoot :global(.text-violet-950),
+.themeRoot :global(.text-violet-900),
+.themeRoot :global(.text-violet-800),
+.themeRoot :global(.text-violet-700),
+.themeRoot :global(.text-violet-600) {
+  color: #4F6F8F !important;
+}
+
+.themeRoot :global(.border-slate-100),
+.themeRoot :global(.border-slate-200),
+.themeRoot :global(.border-slate-300),
+.themeRoot :global(.border-blue-100),
+.themeRoot :global(.border-blue-200),
+.themeRoot :global(.border-indigo-100),
+.themeRoot :global(.border-indigo-200),
+.themeRoot :global(.border-violet-100),
+.themeRoot :global(.border-violet-200) {
+  border-color: rgb(79 111 143 / 0.2) !important;
+}
+
+.themeRoot :global(.ring-blue-100),
+.themeRoot :global(.ring-blue-200),
+.themeRoot :global(.ring-indigo-100),
+.themeRoot :global(.ring-indigo-200),
+.themeRoot :global(.ring-violet-100),
+.themeRoot :global(.ring-violet-200) {
+  --tw-ring-color: rgb(79 111 143 / 0.25) !important;
+}
+
+.themeRoot :global(input),
+.themeRoot :global(select),
+.themeRoot :global(textarea) {
+  border-color: rgb(79 111 143 / 0.24);
+  background-color: #FFFFFF;
+  color: #252B37;
+}
+
+.themeRoot :global(input:focus),
+.themeRoot :global(select:focus),
+.themeRoot :global(textarea:focus) {
+  border-color: #4F6F8F !important;
+  outline: none;
+}
+
+.themeRoot :global(input::placeholder),
+.themeRoot :global(textarea::placeholder) {
+  color: rgb(37 43 55 / 0.42);
+}
+
+/* Compact workspace rhythm. */
+.themeRoot :global(.space-y-8 > :not([hidden]) ~ :not([hidden])) {
+  margin-top: 1.25rem !important;
+}
+
+.themeRoot :global(.space-y-6 > :not([hidden]) ~ :not([hidden])) {
+  margin-top: 1rem !important;
+}
+
+.themeRoot :global(.space-y-5 > :not([hidden]) ~ :not([hidden])) {
+  margin-top: 0.875rem !important;
+}
+
+.themeRoot :global(main th),
+.themeRoot :global(main td) {
+  padding-top: 0.7rem !important;
+  padding-bottom: 0.7rem !important;
+}
+
+.themeRoot :global(main .shadow-sm) {
+  box-shadow: 0 1px 2px rgb(37 43 55 / 0.06);
+}
+
+.darkTheme {
+  color-scheme: dark;
+  background: #252B37;
+}
+
+.darkTheme :global(.bg-slate-50) {
+  background-color: #252B37 !important;
+}
+
+.darkTheme :global(.bg-white),
+.darkTheme :global(.bg-white\/95) {
+  background-color: rgb(255 255 255 / 0.08) !important;
+}
+
+.darkTheme :global(.bg-slate-100) {
+  background-color: rgb(221 232 240 / 0.12) !important;
+}
+
+.darkTheme :global(.bg-slate-200) {
+  background-color: rgb(79 111 143 / 0.2) !important;
+}
+
+.darkTheme :global(.text-slate-950),
+.darkTheme :global(.text-slate-900),
+.darkTheme :global(.text-slate-800) {
+  color: #F9FAFB !important;
+}
+
+.darkTheme :global(.text-slate-700),
+.darkTheme :global(.text-slate-600) {
+  color: rgb(249 250 251 / 0.8) !important;
+}
+
+.darkTheme :global(.text-slate-500),
+.darkTheme :global(.text-slate-400) {
+  color: #DDE8F0 !important;
+}
+
+.darkTheme :global(.border-slate-100),
+.darkTheme :global(.border-slate-200),
+.darkTheme :global(.border-slate-300) {
+  border-color: rgb(221 232 240 / 0.25) !important;
+}
+
+.darkTheme :global(input),
+.darkTheme :global(select),
+.darkTheme :global(textarea) {
+  border-color: rgb(221 232 240 / 0.35) !important;
+  background-color: rgb(255 255 255 / 0.07) !important;
+  color: #F9FAFB !important;
+}
+
+.darkTheme :global(input::placeholder),
+.darkTheme :global(textarea::placeholder) {
+  color: rgb(221 232 240 / 0.65) !important;
+}
+
+.darkTheme :global(option) {
+  background-color: #252B37;
+  color: #F9FAFB;
+}
+
+.darkTheme :global(.hover\:bg-slate-50:hover),
+.darkTheme :global(.hover\:bg-slate-100:hover) {
+  background-color: rgb(221 232 240 / 0.1) !important;
+}
+
+.darkTheme :global(aside .bg-white) {
+  background-color: #FFFFFF !important;
+}
+
+.darkTheme :global(aside .bg-white.text-slate-950) {
+  color: #252B37 !important;
+}
+
+.reducedMotion *,
+.reducedMotion *::before,
+.reducedMotion *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+  transition-duration: 0.01ms !important;
+}
+
+/* Phase 19: subtle motion and interaction polish. */
+.sidebar {
+  transition:
+    width 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 180ms ease;
+  will-change: width;
+}
+
+.sidebarLabel {
+  animation: uc-sidebar-label-in 150ms ease-out both;
+}
+
+.navItem {
+  transition:
+    background-color 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease,
+    transform 140ms ease;
+}
+
+.navItem:active {
+  transform: scale(0.985);
+}
+
+.pageEnter {
+  animation: uc-page-enter 170ms ease-out both;
+}
+
+@keyframes uc-sidebar-label-in {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes uc-page-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.themeRoot :global(button),
+.themeRoot :global(a),
+.themeRoot :global([role='button']) {
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease,
+    opacity 160ms ease,
+    transform 140ms ease;
+}
+
+.themeRoot :global(button:not(:disabled):active),
+.themeRoot :global(a[href]:active),
+.themeRoot :global([role='button']:active) {
+  transform: scale(0.985);
+}
+
+.themeRoot :global(input),
+.themeRoot :global(select),
+.themeRoot :global(textarea) {
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background-color 160ms ease;
+}
+
+.themeRoot :global(input:focus),
+.themeRoot :global(select:focus),
+.themeRoot :global(textarea:focus) {
+  box-shadow: 0 0 0 3px rgb(79 111 143 / 0.12);
+}
+
+.themeRoot :global(main .shadow-sm) {
+  transition:
+    transform 170ms ease,
+    box-shadow 170ms ease,
+    border-color 170ms ease;
+}
+
+.themeRoot :global(main .shadow-sm:hover) {
+  transform: translateY(-1px);
+  box-shadow: 0 5px 14px rgb(37 43 55 / 0.07);
+}
+
+.themeRoot :global(main) {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar,
+  .sidebarLabel,
+  .navItem,
+  .pageEnter,
+  .themeRoot :global(*) {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

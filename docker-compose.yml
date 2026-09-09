@@ -1,0 +1,93 @@
+services:
+  db:
+    image: postgres:16-bookworm
+    container_name: unicolors-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DOCKER_DB_NAME:-Unicolors}
+      POSTGRES_USER: ${DOCKER_DB_USER:-unicolors}
+      POSTGRES_PASSWORD: ${DOCKER_DB_PASSWORD:-unicolors_local_only}
+    ports:
+      - "5433:5432"
+    volumes:
+      - unicolors_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DOCKER_DB_USER:-unicolors} -d ${DOCKER_DB_NAME:-Unicolors}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: unicolors-api
+    restart: unless-stopped
+    env_file:
+      - ./apps/api/.env
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://${DOCKER_DB_USER:-unicolors}:${DOCKER_DB_PASSWORD:-unicolors_local_only}@db:5432/${DOCKER_DB_NAME:-Unicolors}?schema=public
+      FRONTEND_URL: http://localhost:3000
+      ENABLE_SWAGGER: "true"
+      TRUST_PROXY: "false"
+      WHATSAPP_ENABLED: "false"
+      WHISPER_PYTHON_PATH: /opt/whisper-venv/bin/python
+      WHISPER_MODEL: ${WHISPER_MODEL:-small}
+      WHISPER_DEVICE: cpu
+      WHISPER_COMPUTE_TYPE: int8
+      WHISPER_LANGUAGE: ${WHISPER_LANGUAGE:-gu}
+    ports:
+      - "4000:4000"
+    volumes:
+      - unicolors_api_storage:/app/storage
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:4000/api/v1/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: unicolors-web
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      HOSTNAME: 0.0.0.0
+      PORT: 3000
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+volumes:
+  unicolors_postgres_data:
+  unicolors_api_storage:
+

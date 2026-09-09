@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build output
+dist/
+**/dist/
+.next/
+**/.next/
+vscode/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# Whisper models / downloaded AI models
+apps/api/storage/whisper-models/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# OS / Editor
+.DS_Store
+Thumbs.db

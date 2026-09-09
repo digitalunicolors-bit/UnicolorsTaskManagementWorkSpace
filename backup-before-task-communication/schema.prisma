@@ -1,0 +1,1299 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum EmploymentStatus {
+  ACTIVE
+  ON_LEAVE
+  INACTIVE
+  RESIGNED
+}
+
+enum ClientStatus {
+  LEAD
+  ACTIVE
+  ON_HOLD
+  INACTIVE
+  COMPLETED
+}
+
+enum ProjectStatus {
+  PLANNING
+  ACTIVE
+  ON_HOLD
+  UNDER_REVIEW
+  COMPLETED
+  CANCELLED
+  ARCHIVED
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum MilestoneStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  MISSED
+  CANCELLED
+}
+
+enum TaskDependencyType {
+  FINISH_TO_START
+  START_TO_START
+  FINISH_TO_FINISH
+  START_TO_FINISH
+}
+
+enum ReminderChannel {
+  WHATSAPP
+  EMAIL
+  IN_APP
+}
+
+enum ReminderType {
+  DAILY_MORNING
+  ON_DUE_DATE
+  BEFORE_DUE
+  CUSTOM
+}
+
+enum NotificationKind {
+  TASK_DAILY_DIGEST
+  TASK_ASSIGNED
+  TASK_REASSIGNED
+  TASK_DUE_REMINDER
+  TASK_BEFORE_DUE
+  TASK_CUSTOM_REMINDER
+  TASK_UPCOMING_DEADLINE
+  TASK_OVERDUE
+  COMMENT_ADDED
+  USER_MENTIONED
+  FILE_UPLOADED
+  TASK_SUBMITTED_FOR_REVIEW
+  TASK_APPROVED
+  TASK_CHANGES_REQUESTED
+  TASK_COMPLETED
+  PROJECT_DEADLINE_APPROACHING
+  TASK_CRITICAL_ASSIGNED
+}
+
+enum NotificationDeliveryStatus {
+  PENDING
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+  SKIPPED
+}
+
+model User {
+  id                     String                  @id @default(cuid())
+  email                  String?                 @unique
+  phone                  String?                 @unique
+  phoneVerifiedAt        DateTime?
+  whatsappOptInAt        DateTime?
+  passwordHash           String
+  isActive               Boolean                 @default(true)
+  mustChangePassword     Boolean                 @default(false)
+  lastLoginAt            DateTime?
+  failedLoginAttempts    Int                     @default(0)
+  lockedUntil            DateTime?
+  twoFactorEnabled       Boolean                 @default(false)
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  deletedAt              DateTime?
+  passwordResetTokens    PasswordResetToken[]
+  roles                  UserRole[]
+  employeeProfile        EmployeeProfile?
+  createdTasks           Task[]                  @relation("TaskCreator")
+  notificationDeliveries NotificationDelivery[]
+  createdRecurringTasks  RecurringTask[]         @relation("RecurringTaskCreator")
+  notifications          Notification[]          @relation("NotificationRecipient")
+  notificationActions    Notification[]          @relation("NotificationActor")
+  notificationPreference NotificationPreference?
+  activityLogs           ActivityLog[]
+  refreshTokens          RefreshToken[]
+  loginHistory           LoginHistory[]
+  updatedSettings        SystemSetting[]         @relation("SystemSettingUpdatedBy")
+  uploadedTaskVoiceNotes TaskVoiceNote[]         @relation("TaskVoiceNoteUploader")
+
+  comments          Comment[]           @relation("CommentAuthor")
+  commentMentions   CommentMention[]    @relation("CommentMentionUser")
+  commentReactions  CommentReaction[]   @relation("CommentReactionUser")
+  uploadedFiles     FileAsset[]         @relation("FileUploader")
+  fileAccessGrants  FileAccessGrant[]   @relation("FileAccessUser")
+  grantedFileAccess FileAccessGrant[]   @relation("FileAccessGrantedBy")
+  taskStatusChanges TaskStatusHistory[] @relation("TaskStatusChangedBy")
+  approvalRequests  TaskApproval[]      @relation("TaskApprovalRequestedBy")
+  approvalDecisions TaskApproval[]      @relation("TaskApprovalDecidedBy")
+
+  @@index([isActive])
+  @@index([phoneVerifiedAt])
+  @@index([whatsappOptInAt])
+  @@index([deletedAt])
+  @@index([lockedUntil])
+  @@map("users")
+}
+
+model Role {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  isSystem    Boolean  @default(false)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users       UserRole[]
+  permissions RolePermission[]
+
+  @@index([isActive])
+  @@map("roles")
+}
+
+model Permission {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  description String?
+  module      String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  roles               RolePermission[]
+  workflowTransitions TaskWorkflowTransition[] @relation("WorkflowTransitionPermission")
+
+  @@index([module])
+  @@map("permissions")
+}
+
+model UserRole {
+  id         String   @id @default(cuid())
+  userId     String
+  roleId     String
+  assignedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId])
+  @@index([userId])
+  @@index([roleId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  id           String   @id @default(cuid())
+  roleId       String
+  permissionId String
+  assignedAt   DateTime @default(now())
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@index([roleId])
+  @@index([permissionId])
+  @@map("role_permissions")
+}
+
+model EmployeeProfile {
+  id                 String           @id @default(cuid())
+  userId             String           @unique
+  employeeId         String           @unique
+  username           String?          @unique
+  fullName           String
+  profileImageUrl    String?
+  designation        String?
+  departmentId       String?
+  reportingManagerId String?
+  joiningDate        DateTime?
+  employmentStatus   EmploymentStatus @default(ACTIVE)
+  skills             String[]         @default([])
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  deletedAt          DateTime?
+
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department       Department?       @relation("DepartmentMembers", fields: [departmentId], references: [id], onDelete: SetNull)
+  reportingManager EmployeeProfile?  @relation("EmployeeReporting", fields: [reportingManagerId], references: [id], onDelete: SetNull)
+  directReports    EmployeeProfile[] @relation("EmployeeReporting")
+
+  managedDepartments Department[]    @relation("DepartmentHead")
+  teamMemberships    TeamMember[]
+  ledTeams           Team[]          @relation("TeamLead")
+  managedClients     Client[]        @relation("ClientAccountManager")
+  managedProjects    Project[]       @relation("ProjectManager")
+  projectMemberships ProjectMember[]
+
+  taskAssignments    TaskAssignee[]
+  taskCollaborations TaskCollaborator[]
+  followedTasks      TaskFollower[]
+  reviewTasks        TaskReviewer[]
+  assignedSubtasks   Subtask[]          @relation("SubtaskAssignee")
+  taskApprovals      TaskApproval[]     @relation("TaskApprovalReviewer")
+  timeEntries        TimeEntry[]
+
+  @@index([departmentId])
+  @@index([reportingManagerId])
+  @@index([employmentStatus])
+  @@index([deletedAt])
+  @@map("employee_profiles")
+}
+
+model Department {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  description String?
+  headId      String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  head     EmployeeProfile?  @relation("DepartmentHead", fields: [headId], references: [id], onDelete: SetNull)
+  members  EmployeeProfile[] @relation("DepartmentMembers")
+  teams    Team[]
+  projects Project[]
+  tasks    Task[]
+
+  @@index([headId])
+  @@index([isActive])
+  @@index([deletedAt])
+  @@map("departments")
+}
+
+model Team {
+  id           String    @id @default(cuid())
+  name         String
+  description  String?
+  departmentId String
+  leadId       String?
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  department Department       @relation(fields: [departmentId], references: [id], onDelete: Restrict)
+  lead       EmployeeProfile? @relation("TeamLead", fields: [leadId], references: [id], onDelete: SetNull)
+  members    TeamMember[]
+
+  @@unique([departmentId, name])
+  @@index([departmentId])
+  @@index([leadId])
+  @@index([isActive])
+  @@index([deletedAt])
+  @@map("teams")
+}
+
+model TeamMember {
+  id         String    @id @default(cuid())
+  teamId     String
+  employeeId String
+  joinedAt   DateTime  @default(now())
+  leftAt     DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  team     Team            @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  employee EmployeeProfile @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([teamId, employeeId])
+  @@index([teamId])
+  @@index([employeeId])
+  @@map("team_members")
+}
+
+model Client {
+  id               String       @id @default(cuid())
+  name             String
+  companyName      String?
+  logoUrl          String?
+  email            String?
+  phone            String?
+  address          String?
+  website          String?
+  industry         String?
+  accountManagerId String?
+  status           ClientStatus @default(LEAD)
+  internalNotes    String?
+  isActive         Boolean      @default(true)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  deletedAt        DateTime?
+
+  accountManager EmployeeProfile? @relation("ClientAccountManager", fields: [accountManagerId], references: [id], onDelete: SetNull)
+
+  contacts ClientContact[]
+  projects Project[]
+  tasks    Task[]
+  files    FileAsset[]
+  folders  FileFolder[]
+
+  @@index([name])
+  @@index([companyName])
+  @@index([accountManagerId])
+  @@index([status])
+  @@index([isActive])
+  @@index([deletedAt])
+  @@map("clients")
+}
+
+model ClientContact {
+  id          String    @id @default(cuid())
+  clientId    String
+  name        String
+  designation String?
+  email       String?
+  phone       String?
+  isPrimary   Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([email])
+  @@index([phone])
+  @@index([isPrimary])
+  @@index([deletedAt])
+  @@map("client_contacts")
+}
+
+model Project {
+  id               String        @id @default(cuid())
+  name             String
+  clientId         String
+  description      String?
+  projectManagerId String?
+  departmentId     String?
+  startDate        DateTime?
+  deadline         DateTime?
+  priority         Priority      @default(MEDIUM)
+  status           ProjectStatus @default(PLANNING)
+  estimatedHours   Decimal?      @db.Decimal(10, 2)
+  budget           Decimal?      @db.Decimal(14, 2)
+  internalNotes    String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  deletedAt        DateTime?
+
+  client         Client             @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  projectManager EmployeeProfile?   @relation("ProjectManager", fields: [projectManagerId], references: [id], onDelete: SetNull)
+  department     Department?        @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  timeEntries    TimeEntry[]
+  members        ProjectMember[]
+  milestones     ProjectMilestone[]
+  tasks          Task[]
+  comments       Comment[]
+  files          FileAsset[]
+  folders        FileFolder[]
+
+  @@index([clientId])
+  @@index([projectManagerId])
+  @@index([departmentId])
+  @@index([status])
+  @@index([priority])
+  @@index([deadline])
+  @@index([deletedAt])
+  @@map("projects")
+}
+
+model ProjectMember {
+  id         String    @id @default(cuid())
+  projectId  String
+  employeeId String
+  memberRole String?
+  joinedAt   DateTime  @default(now())
+  leftAt     DateTime?
+  isActive   Boolean   @default(true)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  project  Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  employee EmployeeProfile @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, employeeId])
+  @@index([projectId])
+  @@index([employeeId])
+  @@index([isActive])
+  @@map("project_members")
+}
+
+model ProjectMilestone {
+  id          String          @id @default(cuid())
+  projectId   String
+  title       String
+  description String?
+  dueDate     DateTime?
+  completedAt DateTime?
+  status      MilestoneStatus @default(PENDING)
+  sortOrder   Int             @default(0)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  deletedAt   DateTime?
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+  @@index([status])
+  @@index([dueDate])
+  @@index([deletedAt])
+  @@map("project_milestones")
+}
+
+model TaskStatus {
+  id          String    @id @default(cuid())
+  code        String    @unique
+  name        String
+  description String?
+  color       String?
+  sortOrder   Int       @default(0)
+  isSystem    Boolean   @default(false)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  tasks       Task[]
+  historyFrom TaskStatusHistory[] @relation("TaskStatusHistoryFrom")
+  historyTo   TaskStatusHistory[] @relation("TaskStatusHistoryTo")
+
+  transitionsFrom TaskWorkflowTransition[] @relation("TaskWorkflowTransitionFrom")
+  transitionsTo   TaskWorkflowTransition[] @relation("TaskWorkflowTransitionTo")
+
+  approvalStages TaskApproval[] @relation("TaskApprovalStage")
+
+  @@index([sortOrder])
+  @@index([isActive])
+  @@index([deletedAt])
+  @@map("task_statuses")
+}
+
+model TaskCategory {
+  id          String    @id @default(cuid())
+  name        String    @unique
+  description String?
+  color       String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  tasks Task[]
+
+  @@index([isActive])
+  @@index([deletedAt])
+  @@map("task_categories")
+}
+
+model Task {
+  id              String             @id @default(cuid())
+  title           String
+  description     String?
+  clientId        String
+  projectId       String
+  departmentId    String?
+  categoryId      String?
+  statusId        String
+  createdById     String
+  recurringTaskId String?
+  priority        Priority           @default(MEDIUM)
+  startDate       DateTime?
+  dueAt           DateTime?
+  estimatedHours  Decimal?           @db.Decimal(10, 2)
+  internalNotes   String?
+  isDraft         Boolean            @default(false)
+  isCritical      Boolean            @default(false)
+  creationSource  TaskCreationSource @default(STANDARD)
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  deletedAt       DateTime?
+
+  client      Client          @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  project     Project         @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  department  Department?     @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  category    TaskCategory?   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  status      TaskStatus      @relation(fields: [statusId], references: [id], onDelete: Restrict)
+  createdBy   User            @relation("TaskCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  voiceNotes  TaskVoiceNote[]
+  timeEntries TimeEntry[]
+
+  recurringTemplate    RecurringTask? @relation("RecurringTaskTemplate")
+  generatedByRecurring RecurringTask? @relation("GeneratedRecurringTasks", fields: [recurringTaskId], references: [id], onDelete: SetNull)
+
+  assignees     TaskAssignee[]
+  collaborators TaskCollaborator[]
+  followers     TaskFollower[]
+  reviewers     TaskReviewer[]
+  subtasks      Subtask[]
+  checklist     ChecklistItem[]
+  dependencies  TaskDependency[]    @relation("TaskDependencies")
+  dependents    TaskDependency[]    @relation("TaskDependents")
+  tags          TaskTag[]
+  reminders     TaskReminder[]
+  comments      Comment[]
+  files         FileAsset[]
+  folders       FileFolder[]
+  statusHistory TaskStatusHistory[]
+  approvals     TaskApproval[]
+
+  @@index([clientId])
+  @@index([projectId])
+  @@index([departmentId])
+  @@index([categoryId])
+  @@index([statusId])
+  @@index([createdById])
+  @@index([recurringTaskId])
+  @@index([priority])
+  @@index([dueAt])
+  @@index([isCritical])
+  @@index([isDraft])
+  @@index([deletedAt])
+  @@index([creationSource])
+  @@map("tasks")
+}
+
+model TaskAssignee {
+  id         String    @id @default(cuid())
+  taskId     String
+  employeeId String
+  isPrimary  Boolean   @default(false)
+  assignedAt DateTime  @default(now())
+  removedAt  DateTime?
+
+  task     Task            @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  employee EmployeeProfile @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, employeeId])
+  @@index([taskId])
+  @@index([employeeId])
+  @@index([isPrimary])
+  @@map("task_assignees")
+}
+
+model TaskCollaborator {
+  id         String    @id @default(cuid())
+  taskId     String
+  employeeId String
+  addedAt    DateTime  @default(now())
+  removedAt  DateTime?
+
+  task     Task            @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  employee EmployeeProfile @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, employeeId])
+  @@index([taskId])
+  @@index([employeeId])
+  @@map("task_collaborators")
+}
+
+model TaskFollower {
+  id         String   @id @default(cuid())
+  taskId     String
+  employeeId String
+  followedAt DateTime @default(now())
+
+  task     Task            @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  employee EmployeeProfile @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, employeeId])
+  @@index([taskId])
+  @@index([employeeId])
+  @@map("task_followers")
+}
+
+model TaskReviewer {
+  id         String   @id @default(cuid())
+  taskId     String
+  employeeId String
+  sortOrder  Int      @default(0)
+  isRequired Boolean  @default(true)
+  assignedAt DateTime @default(now())
+
+  task     Task            @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  employee EmployeeProfile @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, employeeId])
+  @@index([taskId])
+  @@index([employeeId])
+  @@index([sortOrder])
+  @@map("task_reviewers")
+}
+
+model Subtask {
+  id                 String    @id @default(cuid())
+  taskId             String
+  title              String
+  description        String?
+  assignedEmployeeId String?
+  isCompleted        Boolean   @default(false)
+  completedAt        DateTime?
+  sortOrder          Int       @default(0)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  deletedAt          DateTime?
+
+  task             Task             @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  assignedEmployee EmployeeProfile? @relation("SubtaskAssignee", fields: [assignedEmployeeId], references: [id], onDelete: SetNull)
+
+  @@index([taskId])
+  @@index([assignedEmployeeId])
+  @@index([isCompleted])
+  @@index([sortOrder])
+  @@index([deletedAt])
+  @@map("subtasks")
+}
+
+model ChecklistItem {
+  id          String    @id @default(cuid())
+  taskId      String
+  title       String
+  isCompleted Boolean   @default(false)
+  completedAt DateTime?
+  sortOrder   Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([isCompleted])
+  @@index([sortOrder])
+  @@index([deletedAt])
+  @@map("checklist_items")
+}
+
+model TaskDependency {
+  id              String             @id @default(cuid())
+  taskId          String
+  dependsOnTaskId String
+  type            TaskDependencyType @default(FINISH_TO_START)
+  createdAt       DateTime           @default(now())
+
+  task      Task @relation("TaskDependencies", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOn Task @relation("TaskDependents", fields: [dependsOnTaskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, dependsOnTaskId])
+  @@index([taskId])
+  @@index([dependsOnTaskId])
+  @@map("task_dependencies")
+}
+
+model Tag {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  color     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tasks TaskTag[]
+
+  @@map("tags")
+}
+
+model TaskTag {
+  id     String @id @default(cuid())
+  taskId String
+  tagId  String
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, tagId])
+  @@index([taskId])
+  @@index([tagId])
+  @@map("task_tags")
+}
+
+model TaskReminder {
+  id               String          @id @default(cuid())
+  taskId           String
+  type             ReminderType
+  channel          ReminderChannel
+  scheduledAt      DateTime?
+  minutesBeforeDue Int?
+  isActive         Boolean         @default(true)
+  lastTriggeredAt  DateTime?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  deletedAt        DateTime?
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId])
+  @@index([type])
+  @@index([channel])
+  @@index([scheduledAt])
+  @@index([isActive])
+  @@index([deletedAt])
+  @@map("task_reminders")
+}
+
+model NotificationDelivery {
+  id                String                     @id @default(cuid())
+  userId            String
+  kind              NotificationKind
+  channel           ReminderChannel
+  recipient         String
+  status            NotificationDeliveryStatus @default(PENDING)
+  provider          String?
+  providerMessageId String?
+  payload           Json?
+  errorMessage      String?
+  queuedAt          DateTime?
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  readAt            DateTime?
+  failedAt          DateTime?
+  createdAt         DateTime                   @default(now())
+  updatedAt         DateTime                   @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([kind])
+  @@index([channel])
+  @@index([status])
+  @@index([createdAt])
+  @@map("notification_deliveries")
+}
+
+enum FileAccessScope {
+  INHERITED
+  RESTRICTED
+}
+
+model Comment {
+  id        String    @id @default(cuid())
+  taskId    String?
+  projectId String?
+  authorId  String
+  parentId  String?
+  content   String
+  editedAt  DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  task    Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  author  User     @relation("CommentAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+
+  parent  Comment?  @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies Comment[] @relation("CommentReplies")
+
+  mentions  CommentMention[]
+  reactions CommentReaction[]
+  files     FileAsset[]
+
+  @@index([taskId])
+  @@index([projectId])
+  @@index([authorId])
+  @@index([parentId])
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@map("comments")
+}
+
+model CommentMention {
+  id              String   @id @default(cuid())
+  commentId       String
+  mentionedUserId String
+  createdAt       DateTime @default(now())
+
+  comment       Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  mentionedUser User    @relation("CommentMentionUser", fields: [mentionedUserId], references: [id], onDelete: Cascade)
+
+  @@unique([commentId, mentionedUserId])
+  @@index([commentId])
+  @@index([mentionedUserId])
+  @@map("comment_mentions")
+}
+
+model CommentReaction {
+  id        String   @id @default(cuid())
+  commentId String
+  userId    String
+  emoji     String
+  createdAt DateTime @default(now())
+
+  comment Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  user    User    @relation("CommentReactionUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([commentId, userId, emoji])
+  @@index([commentId])
+  @@index([userId])
+  @@map("comment_reactions")
+}
+
+model FileFolder {
+  id        String    @id @default(cuid())
+  name      String
+  parentId  String?
+  clientId  String?
+  projectId String?
+  taskId    String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  parent   FileFolder?  @relation("FolderHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children FileFolder[] @relation("FolderHierarchy")
+
+  client  Client?  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task    Task?    @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  files FileAsset[]
+
+  @@index([parentId])
+  @@index([clientId])
+  @@index([projectId])
+  @@index([taskId])
+  @@index([deletedAt])
+  @@map("file_folders")
+}
+
+model FileAsset {
+  id           String          @id @default(cuid())
+  originalName String
+  storageKey   String          @unique
+  mimeType     String
+  extension    String?
+  sizeBytes    BigInt
+  uploadedById String
+  clientId     String?
+  projectId    String?
+  taskId       String?
+  commentId    String?
+  folderId     String?
+  accessScope  FileAccessScope @default(INHERITED)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  deletedAt    DateTime?
+
+  uploadedBy User @relation("FileUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  client  Client?     @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  project Project?    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task    Task?       @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  comment Comment?    @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  folder  FileFolder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
+
+  accessGrants FileAccessGrant[]
+
+  @@index([uploadedById])
+  @@index([clientId])
+  @@index([projectId])
+  @@index([taskId])
+  @@index([commentId])
+  @@index([folderId])
+  @@index([mimeType])
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@map("file_assets")
+}
+
+model FileAccessGrant {
+  id          String   @id @default(cuid())
+  fileId      String
+  userId      String
+  grantedById String
+  canView     Boolean  @default(true)
+  canDownload Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  file      FileAsset @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  user      User      @relation("FileAccessUser", fields: [userId], references: [id], onDelete: Cascade)
+  grantedBy User      @relation("FileAccessGrantedBy", fields: [grantedById], references: [id], onDelete: Restrict)
+
+  @@unique([fileId, userId])
+  @@index([fileId])
+  @@index([userId])
+  @@index([grantedById])
+  @@map("file_access_grants")
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  CHANGES_REQUESTED
+  REJECTED
+  CANCELLED
+}
+
+model TaskStatusHistory {
+  id           String   @id @default(cuid())
+  taskId       String
+  fromStatusId String?
+  toStatusId   String
+  changedById  String
+  reason       String?
+  createdAt    DateTime @default(now())
+
+  task       Task        @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  fromStatus TaskStatus? @relation("TaskStatusHistoryFrom", fields: [fromStatusId], references: [id], onDelete: Restrict)
+  toStatus   TaskStatus  @relation("TaskStatusHistoryTo", fields: [toStatusId], references: [id], onDelete: Restrict)
+  changedBy  User        @relation("TaskStatusChangedBy", fields: [changedById], references: [id], onDelete: Restrict)
+
+  @@index([taskId])
+  @@index([fromStatusId])
+  @@index([toStatusId])
+  @@index([changedById])
+  @@index([createdAt])
+  @@map("task_status_history")
+}
+
+model TaskApproval {
+  id            String         @id @default(cuid())
+  taskId        String
+  reviewerId    String?
+  requestedById String
+  decidedById   String?
+  stageStatusId String?
+  status        ApprovalStatus @default(PENDING)
+  decisionNote  String?
+  requestedAt   DateTime       @default(now())
+  decidedAt     DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  task        Task             @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  reviewer    EmployeeProfile? @relation("TaskApprovalReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  requestedBy User             @relation("TaskApprovalRequestedBy", fields: [requestedById], references: [id], onDelete: Restrict)
+  decidedBy   User?            @relation("TaskApprovalDecidedBy", fields: [decidedById], references: [id], onDelete: SetNull)
+  stageStatus TaskStatus?      @relation("TaskApprovalStage", fields: [stageStatusId], references: [id], onDelete: SetNull)
+
+  @@index([taskId])
+  @@index([reviewerId])
+  @@index([requestedById])
+  @@index([decidedById])
+  @@index([stageStatusId])
+  @@index([status])
+  @@index([requestedAt])
+  @@map("task_approvals")
+}
+
+model TaskWorkflowTransition {
+  id                   String   @id @default(cuid())
+  fromStatusId         String
+  toStatusId           String
+  requiredPermissionId String?
+  requiresApproval     Boolean  @default(false)
+  isActive             Boolean  @default(true)
+  sortOrder            Int      @default(0)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  fromStatus TaskStatus @relation("TaskWorkflowTransitionFrom", fields: [fromStatusId], references: [id], onDelete: Cascade)
+  toStatus   TaskStatus @relation("TaskWorkflowTransitionTo", fields: [toStatusId], references: [id], onDelete: Cascade)
+
+  requiredPermission Permission? @relation("WorkflowTransitionPermission", fields: [requiredPermissionId], references: [id], onDelete: SetNull)
+
+  @@unique([fromStatusId, toStatusId])
+  @@index([fromStatusId])
+  @@index([toStatusId])
+  @@index([requiredPermissionId])
+  @@index([isActive])
+  @@map("task_workflow_transitions")
+}
+
+enum TimeEntryStatus {
+  RUNNING
+  PAUSED
+  STOPPED
+}
+
+enum RecurrenceFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
+  CUSTOM
+}
+
+model TimeEntry {
+  id              String          @id @default(cuid())
+  employeeId      String
+  projectId       String
+  taskId          String?
+  status          TimeEntryStatus @default(STOPPED)
+  workDate        DateTime        @default(now())
+  startedAt       DateTime?
+  activeStartedAt DateTime?
+  endedAt         DateTime?
+  durationSeconds Int             @default(0)
+  isManual        Boolean         @default(false)
+  notes           String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  deletedAt       DateTime?
+
+  employee EmployeeProfile @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  project  Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  task     Task?           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId])
+  @@index([projectId])
+  @@index([taskId])
+  @@index([status])
+  @@index([workDate])
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@map("time_entries")
+}
+
+model RecurringTask {
+  id             String              @id @default(cuid())
+  templateTaskId String              @unique
+  createdById    String
+  frequency      RecurrenceFrequency
+  interval       Int                 @default(1)
+  weekdays       Int[]               @default([])
+  dayOfMonth     Int?
+  recurrenceRule String?
+  startAt        DateTime
+  endAt          DateTime?
+  nextRunAt      DateTime?
+  lastRunAt      DateTime?
+  isActive       Boolean             @default(true)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  deletedAt      DateTime?
+
+  templateTask Task @relation("RecurringTaskTemplate", fields: [templateTaskId], references: [id], onDelete: Cascade)
+  createdBy    User @relation("RecurringTaskCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  generatedTasks Task[] @relation("GeneratedRecurringTasks")
+
+  @@index([createdById])
+  @@index([frequency])
+  @@index([nextRunAt])
+  @@index([isActive])
+  @@index([deletedAt])
+  @@map("recurring_tasks")
+}
+
+model Notification {
+  id           String           @id @default(cuid())
+  userId       String
+  actorId      String?
+  kind         NotificationKind
+  title        String
+  message      String
+  entityType   String?
+  entityId     String?
+  redirectPath String?
+  isRead       Boolean          @default(false)
+  readAt       DateTime?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  user  User  @relation("NotificationRecipient", fields: [userId], references: [id], onDelete: Cascade)
+  actor User? @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([actorId])
+  @@index([kind])
+  @@index([isRead])
+  @@index([createdAt])
+  @@index([entityType, entityId])
+  @@map("notifications")
+}
+
+model NotificationPreference {
+  id              String  @id @default(cuid())
+  userId          String  @unique
+  inAppEnabled    Boolean @default(true)
+  emailEnabled    Boolean @default(false)
+  whatsappEnabled Boolean @default(true)
+
+  taskAssigned       Boolean @default(true)
+  taskReassigned     Boolean @default(true)
+  dueReminder        Boolean @default(true)
+  upcomingDeadline   Boolean @default(true)
+  overdueTask        Boolean @default(true)
+  commentAdded       Boolean @default(true)
+  userMentioned      Boolean @default(true)
+  fileUploaded       Boolean @default(true)
+  reviewUpdates      Boolean @default(true)
+  taskCompleted      Boolean @default(true)
+  projectDeadline    Boolean @default(true)
+  dailyDigestEnabled Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("notification_preferences")
+}
+
+model ActivityLog {
+  id            String   @id @default(cuid())
+  userId        String?
+  action        String
+  entityType    String
+  entityId      String?
+  ipAddress     String?
+  userAgent     String?
+  previousValue Json?
+  newValue      Json?
+  metadata      Json?
+  createdAt     DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([action])
+  @@index([entityType])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("activity_logs")
+}
+
+enum LoginEventType {
+  LOGIN_SUCCESS
+  LOGIN_FAILED
+  LOGOUT
+  SESSION_EXPIRED
+  SESSION_REVOKED
+}
+
+model RefreshToken {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  familyId   String
+  ipAddress  String?
+  userAgent  String?
+  deviceName String?
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([expiresAt])
+  @@index([revokedAt])
+  @@map("refresh_tokens")
+}
+
+model LoginHistory {
+  id            String         @id @default(cuid())
+  userId        String?
+  eventType     LoginEventType
+  identifier    String?
+  ipAddress     String?
+  userAgent     String?
+  deviceName    String?
+  browser       String?
+  os            String?
+  failureReason String?
+  createdAt     DateTime       @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([eventType])
+  @@index([identifier])
+  @@index([createdAt])
+  @@map("login_history")
+}
+
+model SystemSetting {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       Json
+  category    String
+  description String?
+  isPublic    Boolean  @default(false)
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  updatedBy User? @relation("SystemSettingUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@index([category])
+  @@index([updatedById])
+  @@index([isPublic])
+  @@map("system_settings")
+}
+
+enum TaskCreationSource {
+  STANDARD
+  CRITICAL_BUTTON
+}
+
+enum TranscriptionStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model TaskVoiceNote {
+  id                  String              @id @default(cuid())
+  taskId              String
+  uploadedById        String
+  originalName        String?
+  storageKey          String              @unique
+  mimeType            String
+  sizeBytes           BigInt?
+  durationSeconds     Int?
+  transcript          String?
+  transcriptEditedAt  DateTime?
+  transcriptionStatus TranscriptionStatus @default(PENDING)
+  language            String?
+  provider            String?
+  errorMessage        String?
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  deletedAt           DateTime?
+
+  task       Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  uploadedBy User @relation("TaskVoiceNoteUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([taskId])
+  @@index([uploadedById])
+  @@index([transcriptionStatus])
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@map("task_voice_notes")
+}
+
+model PasswordResetToken {
+  id                 String    @id @default(cuid())
+  userId             String
+  tokenHash          String    @unique
+  expiresAt          DateTime
+  usedAt             DateTime?
+  requestedIpAddress String?
+  requestedUserAgent String?
+  createdAt          DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
