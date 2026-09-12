@@ -31,6 +31,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 
 import { useAuth } from '@/components/auth/auth-provider';
+import { appDialog } from '@/components/ui/app-dialog-provider';
 
 type ProjectStatus =
   | 'PLANNING'
@@ -289,9 +290,6 @@ export default function ProjectsPage() {
   const [status, setStatus] =
     useState('');
 
-  const [priority, setPriority] =
-    useState('');
-
   const [loading, setLoading] =
     useState(true);
 
@@ -428,13 +426,6 @@ export default function ProjectsPage() {
           );
         }
 
-        if (priority) {
-          params.set(
-            'priority',
-            priority,
-          );
-        }
-
         const result =
           await request<ProjectsResponse>(
             `/projects?${params.toString()}`,
@@ -456,7 +447,6 @@ export default function ProjectsPage() {
       request,
       search,
       status,
-      priority,
     ]);
 
   const loadOptions =
@@ -756,14 +746,6 @@ export default function ProjectsPage() {
                 ) ||
                 undefined,
 
-              priority:
-                String(
-                  form.get(
-                    'priority',
-                  ) ??
-                    'MEDIUM',
-                ),
-
               description:
                 String(
                   form.get(
@@ -975,14 +957,6 @@ export default function ProjectsPage() {
                   ) ?? '',
                 ),
 
-              priority:
-                String(
-                  form.get(
-                    'priority',
-                  ) ??
-                    'MEDIUM',
-                ),
-
               description:
                 String(
                   form.get(
@@ -1044,9 +1018,12 @@ export default function ProjectsPage() {
     project: Project,
   ) => {
     const confirmed =
-      window.confirm(
-        `Delete/archive "${project.name}"?`,
-      );
+      await appDialog.confirm({
+        title: 'Delete project',
+        message: `Delete/archive "${project.name}"?`,
+        confirmLabel: 'Delete',
+        tone: 'danger',
+      });
 
     if (!confirmed) {
       return;
@@ -1062,11 +1039,13 @@ export default function ProjectsPage() {
 
       await loadProjects();
     } catch (err) {
-      window.alert(
-        err instanceof Error
-          ? err.message
-          : 'Project deletion failed.',
-      );
+      await appDialog.alert({
+        title: 'Project deletion failed',
+        message:
+          err instanceof Error
+            ? err.message
+            : 'Project deletion failed.',
+      });
     }
   };
 
@@ -1110,7 +1089,7 @@ export default function ProjectsPage() {
       </div>
 
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="grid gap-3 border-b border-slate-100 p-4 md:grid-cols-[1fr_auto_auto]">
+        <div className="grid gap-3 border-b border-slate-100 p-4 md:grid-cols-[1fr_auto]">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
 
@@ -1140,7 +1119,7 @@ export default function ProjectsPage() {
             </option>
 
             <option value="PLANNING">
-              Planning
+              To Do
             </option>
 
             <option value="ACTIVE">
@@ -1155,10 +1134,6 @@ export default function ProjectsPage() {
               Under Review
             </option>
 
-            <option value="COMPLETED">
-              Completed
-            </option>
-
             <option value="CANCELLED">
               Cancelled
             </option>
@@ -1168,35 +1143,6 @@ export default function ProjectsPage() {
             </option>
           </select>
 
-          <select
-            value={priority}
-            onChange={(event) =>
-              setPriority(
-                event.target.value,
-              )
-            }
-            className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm"
-          >
-            <option value="">
-              All Priorities
-            </option>
-
-            <option value="LOW">
-              Low
-            </option>
-
-            <option value="MEDIUM">
-              Medium
-            </option>
-
-            <option value="HIGH">
-              High
-            </option>
-
-            <option value="URGENT">
-              Urgent
-            </option>
-          </select>
         </div>
 
         {error && !modal && (
@@ -1214,6 +1160,7 @@ export default function ProjectsPage() {
             projects={displayedProjects}
             canFullManage={canFullProjectManage}
             managedDepartmentIds={Array.from(managedDepartmentIds)}
+            hideProgress={clientServicingMode}
             onView={(project) => {
               setSelectedProject(project);
               setModal('view');
@@ -1392,6 +1339,7 @@ function ProjectsTable({
   projects,
   canFullManage,
   managedDepartmentIds,
+  hideProgress,
   onView,
   onEdit,
   onMembers,
@@ -1401,6 +1349,7 @@ function ProjectsTable({
   projects: Project[];
   canFullManage: boolean;
   managedDepartmentIds: string[];
+  hideProgress: boolean;
   onView: (project: Project) => void;
   onEdit: (project: Project) => void;
   onMembers: (project: Project) => void;
@@ -1460,9 +1409,9 @@ function ProjectsTable({
             <th className="px-5 py-4">Client</th>
             <th className="px-5 py-4">Manager</th>
             <th className="px-5 py-4">Deadline</th>
-            <th className="px-5 py-4">Progress</th>
-            <th className="px-5 py-4">Priority</th>
+            {!hideProgress && <th className="px-5 py-4">Progress</th>}
             <th className="px-5 py-4">Status</th>
+            <th className="px-5 py-4">Action</th>
             {showActions && (
               <th className="px-5 py-4">Actions</th>
             )}
@@ -1505,32 +1454,33 @@ function ProjectsTable({
                 {formatDate(project.deadline)}
               </td>
 
-              <td className="min-w-40 px-5 py-4">
-                <div className="mb-1 flex justify-between text-xs">
-                  <span>Progress</span>
-                  <span className="font-semibold">
-                    {project.progress}%
-                  </span>
-                </div>
-                <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-                  <div
-                    className="h-full rounded-full bg-slate-900"
-                    style={{
-                      width: `${Math.min(
-                        Math.max(project.progress ?? 0, 0),
-                        100,
-                      )}%`,
-                    }}
-                  />
-                </div>
-              </td>
+              {!hideProgress && (
+                <td className="min-w-40 px-5 py-4">
+                  <div className="mb-1 flex justify-between text-xs">
+                    <span>Progress</span>
+                    <span className="font-semibold">
+                      {project.progress}%
+                    </span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className="h-full rounded-full bg-slate-900"
+                      style={{
+                        width: `${Math.min(
+                          Math.max(project.progress ?? 0, 0),
+                          100,
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                </td>
+              )}
 
               <td className="px-5 py-4">
-                <PriorityBadge priority={project.priority} />
+                <ProjectStatusBadge status={project.status} />
               </td>
-
               <td className="px-5 py-4">
-                <ProjectStatusBadge status={project.status} reviewStage={project.reviewStage} />
+                <ProjectActionBadge reviewStage={project.reviewStage} clientApprovedAt={project.clientApprovedAt} />
               </td>
 
               {showActions && (
@@ -1636,11 +1586,23 @@ function ProjectHodView({
   const [feedback, setFeedback] = useState('');
   const [changeDepartmentIds, setChangeDepartmentIds] = useState<string[]>([]);
 
-  const displayStatus = project.reviewStage
-    ? project.reviewStage.replaceAll('_', ' ')
-    : project.status === 'ACTIVE'
+  const displayStatus =
+    project.status === 'ACTIVE'
       ? 'IN PROGRESS'
-      : project.status.replaceAll('_', ' ');
+      : project.status === 'PLANNING'
+        ? 'TO DO'
+        : project.status.replaceAll('_', ' ');
+
+  const displayAction =
+    project.reviewStage === 'CLIENT_SERVICING_REVIEW'
+      ? 'CLIENT SERVICING REVIEW'
+      : project.reviewStage === 'CLIENT_REVIEW'
+        ? 'CLIENT APPROVAL PENDING'
+        : project.reviewStage === 'CHANGES_REQUIRED'
+          ? 'CHANGES REQUESTED'
+          : project.clientApprovedAt
+            ? 'CLIENT APPROVED'
+            : '—';
 
   const assignedDepartments = project.departments?.length
     ? project.departments
@@ -1696,14 +1658,17 @@ function ProjectHodView({
         </div>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className={`grid gap-3 ${clientServicingMode ? '' : 'sm:grid-cols-2'}`}>
         <ProjectDetail label="Status" value={displayStatus} />
-        <ProjectDetail label="Progress" value={`${project.progress ?? 0}%`} />
+        <ProjectDetail label="Action" value={displayAction} />
+        {!clientServicingMode && (
+          <ProjectDetail label="Progress" value={`${project.progress ?? 0}%`} />
+        )}
       </div>
 
       {clientServicingMode &&
-        project.status === 'UNDER_REVIEW' &&
-        (!project.reviewStage || project.reviewStage === 'CLIENT_SERVICING_REVIEW') && (
+        ['UNDER_REVIEW', 'ACTIVE'].includes(project.status) &&
+        project.reviewStage === 'CLIENT_SERVICING_REVIEW' && (
           <div className="flex justify-end border-t border-slate-200 pt-4">
             <button
               type="button"
@@ -1722,8 +1687,14 @@ function ProjectHodView({
             <button
               type="button"
               disabled={saving}
-              onClick={() => {
-                if (window.confirm('Mark this project as approved by the client?')) {
+              onClick={async () => {
+                const confirmed = await appDialog.confirm({
+                  title: 'Client approved',
+                  message: 'Mark this project as approved by the client?',
+                  confirmLabel: 'Mark approved',
+                });
+
+                if (confirmed) {
                   void onClientApproved(project);
                 }
               }}
@@ -1890,7 +1861,7 @@ function ProjectForm({
 
       <Input
         name="deadline"
-        label="Deadline / Expected Timeline"
+        label="Deadline / Expected Timeline (Optional)"
         type="date"
         defaultValue={
           toDateInput(
@@ -1899,86 +1870,58 @@ function ProjectForm({
         }
       />
 
-      {!clientServicingMode && (
-      <Select
-        name="priority"
-        label="Priority"
-        defaultValue={
-          project?.priority ??
-          'MEDIUM'
-        }
-      >
-        <option value="LOW">
-          Low
-        </option>
+      <div className="sm:col-span-2">
+        <Textarea
+          name="brief"
+          label="Requirement / Brief"
+          defaultValue={
+            project?.description ??
+            initialClient?.requirements ??
+            ''
+          }
+        />
+      </div>
 
-        <option value="MEDIUM">
-          Medium
-        </option>
-
-        <option value="HIGH">
-          High
-        </option>
-
-        <option value="URGENT">
-          Urgent
-        </option>
-      </Select>
-      )}
-
-      <Textarea
-        name="brief"
-        label="Requirement / Brief"
-        defaultValue={
-          project?.description ??
-          initialClient?.requirements ??
-          ''
-        }
-      />
-
-      <Textarea
-        name="internalNotes"
-        label="Internal Notes (Optional)"
-        defaultValue={
-          project?.internalNotes ??
-          ''
-        }
-      />
-
-      {canUploadFiles && !clientServicingMode && (
-        <div className="sm:col-span-2">
-          <label className="block">
-            <span className="mb-1.5 flex items-center gap-2 text-sm font-medium text-slate-700">
-              <Paperclip className="h-4 w-4" />
-              Attachment
-            </span>
-
-            <input
-              name="attachments"
-              type="file"
-              multiple
-              className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm"
+      <details className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50/60">
+        <summary className="cursor-pointer select-none px-4 py-3 text-sm font-semibold text-slate-700">
+          More details
+        </summary>
+        <div className="grid gap-3 border-t border-slate-200 p-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <Textarea
+              name="internalNotes"
+              label="Internal Notes (Optional)"
+              defaultValue={project?.internalNotes ?? ''}
             />
-          </label>
-        </div>
-      )}
+          </div>
 
-      {canUploadFiles && !clientServicingMode && (
-        <div className="sm:col-span-2">
-          <CreateProjectVoiceInput
-            initialTranscript={
-              project
-                ?.voiceTranscript ??
-              ''
-            }
-            initialLanguage={
-              project
-                ?.voiceLanguage ??
-              'gu'
-            }
-          />
+          {canUploadFiles && !clientServicingMode && (
+            <div className="sm:col-span-2">
+              <label className="block">
+                <span className="mb-1.5 flex items-center gap-2 text-sm font-medium text-slate-700">
+                  <Paperclip className="h-4 w-4" />
+                  Attachment
+                </span>
+                <input
+                  name="attachments"
+                  type="file"
+                  multiple
+                  className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm"
+                />
+              </label>
+            </div>
+          )}
+
+          {canUploadFiles && !clientServicingMode && (
+            <div className="sm:col-span-2">
+              <CreateProjectVoiceInput
+                initialTranscript={project?.voiceTranscript ?? ''}
+                initialLanguage={project?.voiceLanguage ?? 'gu'}
+              />
+            </div>
+          )}
         </div>
-      )}
+      </details>
 
       <div className="sm:col-span-2">
         <SubmitButton
@@ -2734,34 +2677,43 @@ ${nextText}`
     };
 
   return (
-    <div className="space-y-2">
+    <div className="rounded-lg">
+      {voiceError && (
+        <div className="mb-2 rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+          {voiceError}
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
           onClick={
             recording
               ? finishRecording
-              : () => void startRecording()
+              : () =>
+                  void startRecording()
           }
           disabled={transcribing}
-          className={`inline-flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
+          className={`inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-bold transition disabled:opacity-50 ${
             recording
-              ? 'bg-red-600 text-white hover:bg-red-700'
-              : 'bg-slate-900 text-white hover:bg-slate-800'
+              ? 'bg-red-600 text-white'
+              : 'bg-slate-900 text-white'
           }`}
         >
           {recording ? (
-            <Square className="h-4 w-4" />
+            <Square className="h-3.5 w-3.5" />
           ) : (
-            <Mic className="h-4 w-4" />
+            <Mic className="h-3.5 w-3.5" />
           )}
           {recording
-            ? `Stop ${formatDurationShort(recordingSeconds)}`
+            ? `Stop ${formatDurationShort(
+                recordingSeconds,
+              )}`
             : 'Record Voice'}
         </button>
 
-        <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700">
-          <Upload className="h-4 w-4" />
+        <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-700">
+          <Upload className="h-3.5 w-3.5" />
           Upload Audio
           <input
             ref={inputRef}
@@ -2769,7 +2721,9 @@ ${nextText}`
             type="file"
             accept="audio/*,.webm,.ogg,.mp3,.wav,.m4a,.mp4,.aac"
             onChange={(event) => {
-              const file = event.target.files?.[0] ?? null;
+              const file =
+                event.target.files?.[0] ??
+                null;
 
               if (!file) {
                 return;
@@ -2778,7 +2732,10 @@ ${nextText}`
               setVoiceFile(file);
               setTranscript('');
               setTranscriptLanguage('');
-              void transcribeFile(file, 'replace');
+              void transcribeFile(
+                file,
+                'replace',
+              );
             }}
             className="hidden"
           />
@@ -2787,41 +2744,22 @@ ${nextText}`
         {transcribing && (
           <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-700">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            Transcribing...
+            Transcribing…
           </span>
         )}
-      </div>
 
-      {voiceError && (
-        <div className="rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
-          {voiceError}
-        </div>
-      )}
-
-      {selectedFile && (
-        <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-semibold text-slate-700">
-              {selectedFile.name}
-            </p>
-            {previewUrl && (
-              <audio
-                controls
-                src={previewUrl}
-                className="mt-1 h-8 w-full"
-              />
-            )}
-          </div>
+        {selectedFile && (
           <button
             type="button"
             onClick={removeSelection}
-            className="rounded-lg p-1.5 text-slate-500 hover:bg-white hover:text-red-600"
+            className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-500 hover:bg-white hover:text-red-600"
             title="Remove voice note"
           >
-            <X className="h-4 w-4" />
+            <X className="h-3.5 w-3.5" />
+            Remove
           </button>
-        </div>
-      )}
+        )}
+      </div>
 
       <input
         type="hidden"
@@ -2830,31 +2768,64 @@ ${nextText}`
         readOnly
       />
 
-      {(recording || transcribing || transcript) && (
-        <textarea
-          name="voiceTranscript"
-          value={transcript}
-          onChange={(event) => setTranscript(event.target.value)}
-          rows={1}
-          ref={(element) => {
-            if (!element) return;
-            element.style.height = 'auto';
-            element.style.height = `${Math.min(160, Math.max(40, element.scrollHeight))}px`;
-          }}
-          onInput={(event) => {
-            const element = event.currentTarget;
-            element.style.height = 'auto';
-            element.style.height = `${Math.min(160, Math.max(40, element.scrollHeight))}px`;
-          }}
-          placeholder={
-            recording
-              ? 'Listening...'
-              : transcribing
-                ? 'Converting voice to text...'
-                : 'Transcript'
-          }
-          className="w-full resize-none overflow-y-auto rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm outline-none focus:border-slate-400"
-        />
+      {(selectedFile ||
+        transcript ||
+        recording ||
+        transcribing) && (
+        <div className="mt-2 flex items-start gap-2">
+          {selectedFile &&
+            previewUrl && (
+              <audio
+                controls
+                src={previewUrl}
+                className="h-8 w-44 shrink-0"
+              />
+            )}
+
+          <textarea
+            name="voiceTranscript"
+            value={transcript}
+            onChange={(event) =>
+              setTranscript(
+                event.target.value,
+              )
+            }
+            rows={1}
+            ref={(element) => {
+              if (!element) {
+                return;
+              }
+
+              element.style.height =
+                'auto';
+              element.style.height =
+                `${Math.min(
+                  element.scrollHeight,
+                  112,
+                )}px`;
+            }}
+            onInput={(event) => {
+              const element =
+                event.currentTarget;
+
+              element.style.height =
+                'auto';
+              element.style.height =
+                `${Math.min(
+                  element.scrollHeight,
+                  112,
+                )}px`;
+            }}
+            placeholder={
+              recording
+                ? 'Listening…'
+                : transcribing
+                  ? 'Transcribing…'
+                  : 'Transcript'
+            }
+            className="max-h-28 min-h-9 min-w-0 flex-1 resize-none overflow-y-auto rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm outline-none focus:border-indigo-300"
+          />
+        </div>
       )}
     </div>
   );
@@ -3195,9 +3166,12 @@ function MilestonesManager({
     milestone: Milestone,
   ) => {
     const confirmed =
-      window.confirm(
-        `Delete milestone "${milestone.title}"?`,
-      );
+      await appDialog.confirm({
+        title: 'Delete milestone',
+        message: `Delete milestone "${milestone.title}"?`,
+        confirmLabel: 'Delete',
+        tone: 'danger',
+      });
 
     if (!confirmed) {
       return;
@@ -3499,37 +3473,6 @@ function Textarea({
   );
 }
 
-function Select({
-  name,
-  label,
-  defaultValue,
-  required = false,
-  children,
-}: {
-  name: string;
-  label: string;
-  defaultValue?: string;
-  required?: boolean;
-  children: ReactNode;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-sm font-semibold text-slate-700">
-        {label}
-      </span>
-
-      <select
-        name={name}
-        required={required}
-        defaultValue={defaultValue}
-        className="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm outline-none focus:border-slate-400"
-      >
-        {children}
-      </select>
-    </label>
-  );
-}
-
 function SubmitButton({
   saving,
   label,
@@ -3554,63 +3497,63 @@ function SubmitButton({
 
 function ProjectStatusBadge({
   status,
-  reviewStage,
 }: {
   status: ProjectStatus;
-  reviewStage?: ProjectReviewStage | null;
 }) {
   const styles: Record<ProjectStatus, string> = {
     PLANNING: 'bg-blue-50 text-blue-700',
     ACTIVE: 'bg-emerald-50 text-emerald-700',
     ON_HOLD: 'bg-amber-50 text-amber-700',
     UNDER_REVIEW: 'bg-violet-50 text-violet-700',
-    COMPLETED: 'bg-green-50 text-green-700',
+    COMPLETED: 'bg-emerald-50 text-emerald-700',
     CANCELLED: 'bg-red-50 text-red-700',
     ARCHIVED: 'bg-slate-100 text-slate-600',
   };
 
-  const label = reviewStage
-    ? reviewStage.replaceAll('_', ' ')
-    : status === 'ACTIVE'
+  const label =
+    status === 'ACTIVE'
       ? 'IN PROGRESS'
-      : status.replaceAll('_', ' ');
+      : status === 'PLANNING'
+        ? 'TO DO'
+        : status.replaceAll('_', ' ');
 
   return (
-    <span
-      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${styles[status]}`}
-    >
+    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${styles[status]}`}>
       {label}
     </span>
   );
 }
 
-function PriorityBadge({
-  priority,
+function ProjectActionBadge({
+  reviewStage,
+  clientApprovedAt,
 }: {
-  priority: Priority;
+  reviewStage?: ProjectReviewStage | null;
+  clientApprovedAt?: string | null;
 }) {
-  const styles: Record<
-    Priority,
-    string
-  > = {
-    LOW:
-      'bg-slate-100 text-slate-600',
+  const label =
+    reviewStage === 'CLIENT_SERVICING_REVIEW'
+      ? 'CS REVIEW'
+      : reviewStage === 'CLIENT_REVIEW'
+        ? 'CLIENT APPROVAL'
+        : reviewStage === 'CHANGES_REQUIRED'
+          ? 'CHANGES REQUESTED'
+          : clientApprovedAt
+            ? 'CLIENT APPROVED'
+            : '—';
 
-    MEDIUM:
-      'bg-blue-50 text-blue-700',
-
-    HIGH:
-      'bg-orange-50 text-orange-700',
-
-    URGENT:
-      'bg-red-50 text-red-700',
-  };
+  const className =
+    label === 'CLIENT APPROVED'
+      ? 'bg-emerald-50 text-emerald-700'
+      : label === 'CHANGES REQUESTED'
+        ? 'bg-rose-50 text-rose-700'
+        : label === '—'
+          ? 'bg-slate-50 text-slate-500'
+          : 'bg-violet-50 text-violet-700';
 
   return (
-    <span
-      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${styles[priority]}`}
-    >
-      {priority}
+    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${className}`}>
+      {label}
     </span>
   );
 }

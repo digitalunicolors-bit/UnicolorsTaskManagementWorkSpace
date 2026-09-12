@@ -431,7 +431,7 @@ model Project {
   departmentId     String?
   startDate        DateTime?
   deadline         DateTime?
-  priority         Priority           @default(MEDIUM)
+  priority         Priority           @default(HIGH)
   status           ProjectStatus      @default(PLANNING)
   reviewStage      ProjectReviewStage?
   clientReviewSentAt DateTime?
@@ -584,7 +584,7 @@ model Task {
   statusId        String
   createdById     String
   recurringTaskId String?
-  priority        Priority           @default(MEDIUM)
+  priority        Priority           @default(HIGH)
   startDate       DateTime?
   dueAt           DateTime?
   estimatedHours  Decimal?           @db.Decimal(10, 2)

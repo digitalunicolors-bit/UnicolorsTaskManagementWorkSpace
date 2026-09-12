@@ -5,9 +5,11 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import {
+  AtSign,
   Download,
   Eye,
   File as FileIcon,
@@ -27,6 +29,7 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '@/components/auth/auth-provider';
+import { appDialog } from '@/components/ui/app-dialog-provider';
 
 type FilePurpose = 'GENERAL' | 'REFERENCE' | 'WORK_SUBMISSION';
 
@@ -40,6 +43,18 @@ interface UserSummary {
   email?: string | null;
   phone?: string | null;
   employeeProfile?: PersonProfile | null;
+}
+
+interface MentionCandidate {
+  id: string;
+  employeeId: string;
+  username?: string | null;
+  fullName: string;
+  designation?: string | null;
+  department?: {
+    id: string;
+    name: string;
+  } | null;
 }
 
 interface TaskComment {
@@ -150,6 +165,9 @@ export function TaskCommunicationPanel({
   const [error, setError] = useState('');
   const [text, setText] = useState('');
   const [replyTo, setReplyTo] = useState<TaskComment | null>(null);
+  const [mentionCandidates, setMentionCandidates] = useState<MentionCandidate[]>([]);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [upload, setUpload] = useState<File | null>(null);
   const [purpose, setPurpose] = useState<FilePurpose>('GENERAL');
   const [preview, setPreview] = useState<{
@@ -188,6 +206,33 @@ export function TaskCommunicationPanel({
 
   useEffect(() => { void load(); }, [load]);
 
+  useEffect(() => {
+    if (!canComment) {
+      return;
+    }
+
+    let active = true;
+
+    void request<MentionCandidate[]>(
+      '/employees/team-directory?employmentStatus=ACTIVE',
+    )
+      .then((items) => {
+        if (!active) return;
+        setMentionCandidates(
+          items.filter((item) => Boolean(item.username)),
+        );
+      })
+      .catch(() => {
+        if (active) {
+          setMentionCandidates([]);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [canComment, request]);
+
   useEffect(() => () => {
     if (preview?.url) URL.revokeObjectURL(preview.url);
   }, [preview]);
@@ -217,6 +262,81 @@ export function TaskCommunicationPanel({
     })),
   ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()), [comments, files]);
 
+  const visibleMentionCandidates = useMemo(() => {
+    if (mentionQuery === null) {
+      return [];
+    }
+
+    const query = mentionQuery.toLowerCase();
+
+    return mentionCandidates
+      .filter((item) => {
+        const username = (item.username ?? '').toLowerCase();
+        const fullName = item.fullName.toLowerCase();
+
+        return (
+          !query ||
+          username.includes(query) ||
+          fullName.includes(query)
+        );
+      })
+      .slice(0, 8);
+  }, [mentionCandidates, mentionQuery]);
+
+  function updateCommentText(value: string) {
+    setText(value);
+
+    const match = value.match(
+      /(?:^|\s)@([a-zA-Z0-9._-]*)$/,
+    );
+
+    setMentionQuery(
+      match ? match[1] : null,
+    );
+  }
+
+  function selectMention(candidate: MentionCandidate) {
+    if (!candidate.username) {
+      return;
+    }
+
+    const next = text.replace(
+      /(?:^|\s)@([a-zA-Z0-9._-]*)$/,
+      (match) => {
+        const leadingSpace =
+          match.startsWith(' ') ? ' ' : '';
+
+        return `${leadingSpace}@${candidate.username} `;
+      },
+    );
+
+    setText(next);
+    setMentionQuery(null);
+
+    window.setTimeout(() => {
+      textareaRef.current?.focus();
+    }, 0);
+  }
+
+  function renderCommentContent(content: string) {
+    const parts = content.split(
+      /(@[a-zA-Z0-9._-]+)/g,
+    );
+
+    return parts.map((part, index) =>
+      part.startsWith('@') ? (
+        <span
+          key={`${part}-${index}`}
+          className="font-bold text-violet-700"
+        >
+          {part}
+        </span>
+      ) : (
+        <span key={`text-${index}`}>{part}</span>
+      ),
+    );
+  }
+
   async function submitComment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!text.trim()) return;
@@ -229,6 +349,7 @@ export function TaskCommunicationPanel({
         body: JSON.stringify({ content: text.trim(), parentId: replyTo?.id || undefined }),
       });
       setText('');
+      setMentionQuery(null);
       setReplyTo(null);
       await load();
       onChanged?.();
@@ -240,7 +361,13 @@ export function TaskCommunicationPanel({
   }
 
   async function removeComment(comment: TaskComment) {
-    if (!window.confirm('Delete this comment?')) return;
+    const confirmed = await appDialog.confirm({
+      title: 'Delete comment',
+      message: 'Delete this comment?',
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     setError('');
     try {
       await request(`/comments/${comment.id}`, { method: 'DELETE' });
@@ -324,7 +451,13 @@ export function TaskCommunicationPanel({
   }
 
   async function removeFile(file: TaskFile) {
-    if (!window.confirm(`Delete "${file.originalName}"?`)) return;
+    const confirmed = await appDialog.confirm({
+      title: 'Delete file',
+      message: `Delete "${file.originalName}"?`,
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     setError('');
     try {
       await request(`/files/${file.id}`, { method: 'DELETE' });
@@ -360,7 +493,9 @@ export function TaskCommunicationPanel({
               )}
             </div>
           </div>
-          <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">{comment.content}</p>
+          <p className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">
+            {renderCommentContent(comment.content)}
+          </p>
         </div>
       </div>
     );
@@ -378,7 +513,6 @@ export function TaskCommunicationPanel({
     <div className="mt-8 space-y-6 border-t border-slate-200 pt-7">
       <div>
         <h3 className="text-lg font-bold text-slate-950">Task Work Area</h3>
-        <p className="mt-1 text-sm text-slate-500">Comments, replies, references and completed work stay with this task.</p>
       </div>
 
       {error && <div className="rounded-xl bg-red-50 p-4 text-sm text-red-700">{error}</div>}
@@ -398,14 +532,46 @@ export function TaskCommunicationPanel({
                   <button type="button" onClick={() => setReplyTo(null)} aria-label="Cancel reply"><X className="h-4 w-4" /></button>
                 </div>
               )}
-              <textarea
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                rows={3}
-                maxLength={5000}
-                placeholder="Add a work update. Use @username to mention someone."
-                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-violet-400"
-              />
+              <div className="relative">
+                <textarea
+                  ref={textareaRef}
+                  value={text}
+                  onChange={(e) => updateCommentText(e.target.value)}
+                  rows={3}
+                  maxLength={5000}
+                  placeholder="Add a work update. Type @ to mention a teammate or HOD."
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-violet-400"
+                />
+
+                {visibleMentionCandidates.length > 0 && (
+                  <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-56 overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
+                    {visibleMentionCandidates.map((candidate) => (
+                      <button
+                        key={candidate.id}
+                        type="button"
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          selectMention(candidate);
+                        }}
+                        className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition hover:bg-violet-50"
+                      >
+                        <AtSign className="h-4 w-4 shrink-0 text-violet-500" />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-bold text-slate-900">
+                            {candidate.fullName}
+                          </p>
+                          <p className="truncate text-xs text-slate-500">
+                            @{candidate.username}
+                            {candidate.designation
+                              ? ` · ${candidate.designation}`
+                              : ''}
+                          </p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
               <div className="mt-2 flex justify-end">
                 <button type="submit" disabled={busy || !text.trim()} className="inline-flex items-center gap-2 rounded-xl bg-violet-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
                   {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}

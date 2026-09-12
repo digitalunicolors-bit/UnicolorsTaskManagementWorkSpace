@@ -181,7 +181,7 @@ export class CalendarService {
 
     let employeeWhere: any = {
       deletedAt: null,
-      employmentStatus: { in: ['ACTIVE', 'ON_LEAVE'] },
+      employmentStatus: 'ACTIVE',
     };
 
     if (
@@ -294,7 +294,7 @@ export class CalendarService {
       };
     }
 
-    const [tasks, projects, milestones, recurring, onLeave] = await Promise.all([
+    const [tasks, projects, milestones, recurring] = await Promise.all([
       this.prisma.task.findMany({
         where: taskFilters,
         select: {
@@ -378,21 +378,7 @@ export class CalendarService {
         },
         orderBy: { nextRunAt: 'asc' },
       }),
-      this.prisma.employeeProfile.findMany({
-        where: {
-          deletedAt: null,
-          employmentStatus: 'ON_LEAVE',
-          ...(query.employeeId ? { id: query.employeeId } : {}),
-          ...(query.departmentId ? { departmentId: query.departmentId } : {}),
-        },
-        select: {
-          id: true,
-          fullName: true,
-          username: true,
-          department: { select: { id: true, name: true } },
-        },
-        orderBy: { fullName: 'asc' },
-      }),
+
     ]);
 
     const events: any[] = [];
@@ -460,23 +446,6 @@ export class CalendarService {
       });
     }
 
-    // Current schema has ON_LEAVE status but no dated leave model yet.
-    // Therefore the employee is shown as "on leave today" while that status is active.
-    const today = new Date();
-    if (today >= start && today < end) {
-      for (const employee of onLeave) {
-        events.push({
-          id: `leave:${employee.id}`,
-          type: 'LEAVE',
-          title: `${employee.fullName} — On Leave`,
-          date: today.toISOString(),
-          employee,
-          department: employee.department,
-          redirectPath: null,
-        });
-      }
-    }
-
     events.sort(
       (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
     );
@@ -485,7 +454,6 @@ export class CalendarService {
       start: start.toISOString(),
       end: end.toISOString(),
       events,
-      leaveMode: 'CURRENT_STATUS',
     };
   }
 }

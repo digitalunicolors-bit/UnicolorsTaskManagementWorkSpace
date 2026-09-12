@@ -57,6 +57,12 @@ export class UpdateSubtaskDto {
   sortOrder?: number;
 }
 
+
+export class UpdateSubtaskWorkflowDto {
+  @IsIn(['STARTED', 'PAUSED', 'COMPLETED'])
+  status!: 'STARTED' | 'PAUSED' | 'COMPLETED';
+}
+
 export class CreateChecklistItemDto {
   @IsString()
   @MinLength(1)

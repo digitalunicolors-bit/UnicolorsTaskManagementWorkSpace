@@ -16,6 +16,9 @@ import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { CreateHrJoinRequestDto } from './dto/create-hr-join-request.dto';
 import { EmployeeQueryDto } from './dto/employee-query.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
+import { ActivateEmployeeLoginDto } from './dto/activate-employee-login.dto';
+import { UpdateEmployeeLoginDto } from './dto/update-employee-login.dto';
+import { CreateSuperAdminDto } from './dto/create-super-admin.dto';
 
 type HrJoinPayload = {
   fullName: string;
@@ -426,20 +429,55 @@ export class EmployeesService {
 
     const search = query.search?.trim();
 
-    const departmentWhere = canViewAll
+    const scopedHeadIds = canViewAll
+      ? []
+      : (
+          await this.prisma.department.findMany({
+            where: {
+              id: {
+                in: scopedDepartmentIds ?? [],
+              },
+              deletedAt: null,
+              isActive: true,
+            },
+            select: {
+              headId: true,
+            },
+          })
+        )
+          .map((department) => department.headId)
+          .filter(
+            (headId): headId is string =>
+              Boolean(headId),
+          );
+
+    const accessWhere: any = canViewAll
       ? query.departmentId
         ? { departmentId: query.departmentId }
         : {}
       : {
-          departmentId: {
-            in: scopedDepartmentIds ?? [],
-          },
+          OR: [
+            {
+              departmentId: {
+                in: scopedDepartmentIds ?? [],
+              },
+            },
+            ...(scopedHeadIds.length
+              ? [
+                  {
+                    id: {
+                      in: scopedHeadIds,
+                    },
+                  },
+                ]
+              : []),
+          ],
         };
 
     return this.prisma.employeeProfile.findMany({
       where: {
         deletedAt: null,
-        ...departmentWhere,
+        ...accessWhere,
 
         ...(query.employmentStatus && {
           employmentStatus:
@@ -1169,6 +1207,76 @@ export class EmployeesService {
     return employee;
   }
 
+  async findSuperAdmins(
+    access: EmployeeAccessContext = {},
+  ) {
+    this.assertSuperAdminLoginManager(access);
+
+    return this.prisma.employeeProfile.findMany({
+      where: {
+        deletedAt: null,
+        user: {
+          deletedAt: null,
+          roles: {
+            some: {
+              role: {
+                isActive: true,
+                name: 'SUPER_ADMIN',
+              },
+            },
+          },
+        },
+      },
+      select: {
+        id: true,
+        employeeId: true,
+        username: true,
+        fullName: true,
+        designation: true,
+        user: {
+          select: {
+            id: true,
+            email: true,
+            phone: true,
+            isActive: true,
+            mustChangePassword: true,
+            lastLoginAt: true,
+          },
+        },
+      },
+      orderBy: {
+        fullName: 'asc',
+      },
+    });
+  }
+
+  async createSuperAdmin(
+    dto: CreateSuperAdminDto,
+    access: EmployeeAccessContext = {},
+  ) {
+    this.assertSuperAdminLoginManager(access);
+
+    const employeeId =
+      `UC-SA-${randomBytes(4)
+        .toString('hex')
+        .toUpperCase()}`;
+
+    return this.create(
+      {
+        employeeId,
+        fullName: dto.fullName,
+        username: dto.username,
+        email: dto.email,
+        phone: dto.phone,
+        temporaryPassword:
+          dto.temporaryPassword,
+        designation: 'Super Admin',
+        roleNames: ['SUPER_ADMIN'],
+      },
+      access,
+    );
+  }
+
   async create(
     dto: CreateEmployeeDto,
     access: EmployeeAccessContext = {},
@@ -1226,6 +1334,15 @@ export class EmployeesService {
     await this.validateManager(
       reportingManagerId,
     );
+
+    if (
+      dto.roleNames?.includes('SUPER_ADMIN') &&
+      !access.roles?.includes('SUPER_ADMIN')
+    ) {
+      throw new ForbiddenException(
+        'Only Super Admin can create another Super Admin account.',
+      );
+    }
 
     const roles =
       await this.getRoles(
@@ -1556,6 +1673,507 @@ export class EmployeesService {
           });
         },
       );
+
+    return this.findOne(employee.id);
+  }
+
+
+  private assertSuperAdminLoginManager(
+    access: EmployeeAccessContext,
+  ) {
+    if (
+      !access.userId ||
+      !access.roles?.includes('SUPER_ADMIN')
+    ) {
+      throw new ForbiddenException(
+        'Only Super Admin can manage workspace login details.',
+      );
+    }
+  }
+
+  private async assertWorkspaceLoginIdentifiers(
+    options: {
+      employeeId: string;
+      userId: string;
+      username?: string | null;
+      email?: string | null;
+      phone?: string | null;
+    },
+  ) {
+    const username =
+      options.username
+        ? this.normalizeUsername(
+            options.username,
+          )
+        : null;
+
+    const email =
+      options.email
+        ?.trim()
+        .toLowerCase() || null;
+
+    const phone =
+      options.phone?.trim() || null;
+
+    if (!email && !phone) {
+      throw new BadRequestException(
+        'Email or phone number is required for workspace login.',
+      );
+    }
+
+    if (username) {
+      const duplicateUsername =
+        await this.prisma.employeeProfile.findFirst({
+          where: {
+            username,
+            id: {
+              not: options.employeeId,
+            },
+            deletedAt: null,
+          },
+          select: {
+            id: true,
+          },
+        });
+
+      if (duplicateUsername) {
+        throw new ConflictException(
+          'Username already exists.',
+        );
+      }
+    }
+
+    if (email) {
+      const duplicateEmail =
+        await this.prisma.user.findFirst({
+          where: {
+            email,
+            id: {
+              not: options.userId,
+            },
+            deletedAt: null,
+          },
+          select: {
+            id: true,
+          },
+        });
+
+      if (duplicateEmail) {
+        throw new ConflictException(
+          'Email address already exists.',
+        );
+      }
+    }
+
+    if (phone) {
+      const duplicatePhone =
+        await this.prisma.user.findFirst({
+          where: {
+            phone,
+            id: {
+              not: options.userId,
+            },
+            deletedAt: null,
+          },
+          select: {
+            id: true,
+          },
+        });
+
+      if (duplicatePhone) {
+        throw new ConflictException(
+          'Phone number already exists.',
+        );
+      }
+    }
+
+    return {
+      username,
+      email,
+      phone,
+    };
+  }
+
+  async activateWorkspaceLogin(
+    employeeProfileId: string,
+    dto: ActivateEmployeeLoginDto,
+    access: EmployeeAccessContext,
+  ) {
+    this.assertSuperAdminLoginManager(access);
+
+    const employee =
+      await this.prisma.employeeProfile.findFirst({
+        where: {
+          id: employeeProfileId,
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          userId: true,
+          employeeId: true,
+          fullName: true,
+          departmentId: true,
+          user: {
+            select: {
+              id: true,
+              isActive: true,
+              email: true,
+              phone: true,
+              roles: {
+                where: {
+                  role: {
+                    isActive: true,
+                  },
+                },
+                select: {
+                  role: {
+                    select: {
+                      name: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+
+    if (!employee) {
+      throw new NotFoundException(
+        'Employee not found.',
+      );
+    }
+
+    if (employee.user.isActive) {
+      throw new BadRequestException(
+        'Workspace login is already active. Use Manage Login to edit it.',
+      );
+    }
+
+    const hrJoinLog =
+      await this.prisma.activityLog.findFirst({
+        where: {
+          action: 'HR_EMPLOYEE_JOINED',
+          entityType: 'HR_JOIN_REQUEST',
+          entityId: employee.id,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+    if (!hrJoinLog) {
+      throw new BadRequestException(
+        'This employee is not a pending HR join record.',
+      );
+    }
+
+    const identifiers =
+      await this.assertWorkspaceLoginIdentifiers({
+        employeeId: employee.id,
+        userId: employee.userId,
+        username: dto.username,
+        email: dto.email,
+        phone: dto.phone,
+      });
+
+    const passwordHash =
+      await hash(
+        dto.temporaryPassword,
+        12,
+      );
+
+    let permanentEmployeeId =
+      employee.employeeId;
+
+    if (
+      permanentEmployeeId.startsWith(
+        'HRP-',
+      )
+    ) {
+      let available = false;
+
+      while (!available) {
+        permanentEmployeeId =
+          `UC-${randomBytes(4)
+            .toString('hex')
+            .toUpperCase()}`;
+
+        const duplicate =
+          await this.prisma.employeeProfile.findUnique({
+            where: {
+              employeeId:
+                permanentEmployeeId,
+            },
+            select: {
+              id: true,
+            },
+          });
+
+        available = !duplicate;
+      }
+    }
+
+    const roleNames =
+      employee.user.roles.map(
+        (item) => item.role.name,
+      );
+
+    await this.prisma.$transaction(
+      async (tx) => {
+        await tx.user.update({
+          where: {
+            id: employee.userId,
+          },
+          data: {
+            email:
+              identifiers.email,
+            phone:
+              identifiers.phone,
+            passwordHash,
+            isActive: true,
+            mustChangePassword: true,
+            failedLoginAttempts: 0,
+            lockedUntil: null,
+          },
+        });
+
+        await tx.employeeProfile.update({
+          where: {
+            id: employee.id,
+          },
+          data: {
+            employeeId:
+              permanentEmployeeId,
+            username:
+              identifiers.username,
+          },
+        });
+
+        await tx.activityLog.create({
+          data: {
+            userId:
+              access.userId!,
+            action:
+              'SUPER_ADMIN_EMPLOYEE_LOGIN_ACTIVATED',
+            entityType:
+              'EMPLOYEE',
+            entityId:
+              employee.id,
+            newValue: {
+              employeeId:
+                permanentEmployeeId,
+              username:
+                identifiers.username,
+              email:
+                identifiers.email,
+              phone:
+                identifiers.phone,
+              roles: roleNames,
+            },
+            metadata: {
+              departmentId:
+                employee.departmentId,
+              source:
+                'DEPARTMENT_MANAGE_LOGIN',
+            },
+          },
+        });
+      },
+    );
+
+    return this.findOne(employee.id);
+  }
+
+  async updateWorkspaceLogin(
+    employeeProfileId: string,
+    dto: UpdateEmployeeLoginDto,
+    access: EmployeeAccessContext,
+  ) {
+    this.assertSuperAdminLoginManager(access);
+
+    const employee =
+      await this.findOne(
+        employeeProfileId,
+      );
+
+    const roleNames =
+      employee.user.roles.map(
+        (item) => item.role.name,
+      );
+
+    const targetIsSuperAdmin =
+      roleNames.includes(
+        'SUPER_ADMIN',
+      );
+
+    if (
+      targetIsSuperAdmin &&
+      access.userId === employee.user.id &&
+      dto.isActive === false
+    ) {
+      throw new BadRequestException(
+        'You cannot deactivate your own Super Admin login.',
+      );
+    }
+
+    const nextUsername =
+      dto.username !== undefined
+        ? dto.username
+        : employee.username;
+
+    const nextEmail =
+      dto.email !== undefined
+        ? dto.email
+        : employee.user.email;
+
+    const nextPhone =
+      dto.phone !== undefined
+        ? dto.phone
+        : employee.user.phone;
+
+    const identifiers =
+      await this.assertWorkspaceLoginIdentifiers({
+        employeeId:
+          employee.id,
+        userId:
+          employee.user.id,
+        username:
+          nextUsername,
+        email:
+          nextEmail,
+        phone:
+          nextPhone,
+      });
+
+    const password =
+      dto.temporaryPassword?.trim() ||
+      null;
+
+    const passwordHash =
+      password
+        ? await hash(
+            password,
+            12,
+          )
+        : null;
+
+    const shouldRevokeSessions =
+      Boolean(password) ||
+      dto.isActive === false;
+
+    const now = new Date();
+
+    await this.prisma.$transaction(
+      async (tx) => {
+        await tx.user.update({
+          where: {
+            id:
+              employee.user.id,
+          },
+          data: {
+            ...(dto.email !==
+              undefined && {
+              email:
+                identifiers.email,
+            }),
+            ...(dto.phone !==
+              undefined && {
+              phone:
+                identifiers.phone,
+            }),
+            ...(dto.isActive !==
+              undefined && {
+              isActive:
+                dto.isActive,
+            }),
+            ...(passwordHash && {
+              passwordHash,
+              mustChangePassword:
+                true,
+              failedLoginAttempts: 0,
+              lockedUntil: null,
+            }),
+          },
+        });
+
+        if (
+          dto.username !== undefined
+        ) {
+          await tx.employeeProfile.update({
+            where: {
+              id: employee.id,
+            },
+            data: {
+              username:
+                identifiers.username,
+            },
+          });
+        }
+
+        if (
+          shouldRevokeSessions
+        ) {
+          await tx.refreshToken.updateMany({
+            where: {
+              userId:
+                employee.user.id,
+              revokedAt: null,
+            },
+            data: {
+              revokedAt: now,
+            },
+          });
+        }
+
+        if (password) {
+          await tx.passwordResetToken.updateMany({
+            where: {
+              userId:
+                employee.user.id,
+              usedAt: null,
+            },
+            data: {
+              usedAt: now,
+            },
+          });
+        }
+
+        await tx.activityLog.create({
+          data: {
+            userId:
+              access.userId!,
+            action:
+              'SUPER_ADMIN_EMPLOYEE_LOGIN_UPDATED',
+            entityType:
+              'EMPLOYEE',
+            entityId:
+              employee.id,
+            newValue: {
+              username:
+                identifiers.username,
+              email:
+                identifiers.email,
+              phone:
+                identifiers.phone,
+              isActive:
+                dto.isActive ??
+                employee.user.isActive,
+              passwordChanged:
+                Boolean(password),
+            },
+            metadata: {
+              source:
+                targetIsSuperAdmin
+                  ? 'SUPER_ADMIN_ACCOUNTS'
+                  : 'DEPARTMENT_MANAGE_LOGIN',
+              sessionsRevoked:
+                shouldRevokeSessions,
+            },
+          },
+        });
+      },
+    );
 
     return this.findOne(employee.id);
   }
@@ -2010,60 +2628,247 @@ export class EmployeesService {
     return this.findOne(id);
   }
 
-  async remove(id: string) {
+  async remove(
+    id: string,
+    access: EmployeeAccessContext = {},
+  ) {
+    this.assertSuperAdminLoginManager(access);
+
     const employee =
       await this.findOne(id);
 
+    const roleNames =
+      employee.user.roles.map(
+        (item) => item.role.name,
+      );
+
+    if (
+      roleNames.includes('SUPER_ADMIN')
+    ) {
+      throw new BadRequestException(
+        'Super Admin accounts cannot be removed from Team Member Management.',
+      );
+    }
+
+    if (
+      employee.user.id === access.userId
+    ) {
+      throw new BadRequestException(
+        'You cannot remove your own workspace account.',
+      );
+    }
+
+    const [activeTaskCount, activeProjectCount] =
+      await Promise.all([
+        this.prisma.task.count({
+          where: {
+            deletedAt: null,
+            status: {
+              code: {
+                notIn: [
+                  'DONE',
+                  'COMPLETED',
+                  'CANCELLED',
+                  'ARCHIVED',
+                ],
+              },
+            },
+            OR: [
+              {
+                assignees: {
+                  some: {
+                    employeeId: id,
+                    removedAt: null,
+                  },
+                },
+              },
+              {
+                collaborators: {
+                  some: {
+                    employeeId: id,
+                    removedAt: null,
+                  },
+                },
+              },
+              {
+                reviewers: {
+                  some: {
+                    employeeId: id,
+                  },
+                },
+              },
+            ],
+          },
+        }),
+        this.prisma.project.count({
+          where: {
+            deletedAt: null,
+            status: {
+              notIn: [
+                'COMPLETED',
+                'CANCELLED',
+                'ARCHIVED',
+              ],
+            },
+            OR: [
+              {
+                projectManagerId: id,
+              },
+              {
+                members: {
+                  some: {
+                    employeeId: id,
+                    isActive: true,
+                  },
+                },
+              },
+            ],
+          },
+        }),
+      ]);
+
+    if (
+      activeTaskCount > 0 ||
+      activeProjectCount > 0
+    ) {
+      throw new BadRequestException(
+        `Reassign this member before removal. Active tasks: ${activeTaskCount}; active projects: ${activeProjectCount}.`,
+      );
+    }
+
     const now = new Date();
 
-    await this.prisma.$transaction([
-      this.prisma.employeeProfile.update({
-        where: {
-          id,
-        },
-        data: {
-          deletedAt: now,
-          employmentStatus:
-            'INACTIVE',
-        },
-      }),
+    await this.prisma.$transaction(
+      async (tx) => {
+        await tx.department.updateMany({
+          where: {
+            headId: id,
+            deletedAt: null,
+          },
+          data: {
+            headId: null,
+          },
+        });
 
-      this.prisma.user.update({
-        where: {
-          id: employee.user.id,
-        },
-        data: {
-          isActive: false,
-          deletedAt: now,
-        },
-      }),
+        await tx.employeeProfile.updateMany({
+          where: {
+            reportingManagerId: id,
+            deletedAt: null,
+          },
+          data: {
+            reportingManagerId: null,
+          },
+        });
 
-      this.prisma.teamMember.updateMany({
-        where: {
-          employeeId: id,
-          leftAt: null,
-        },
-        data: {
-          leftAt: now,
-        },
-      }),
+        await tx.teamMember.updateMany({
+          where: {
+            employeeId: id,
+            leftAt: null,
+          },
+          data: {
+            leftAt: now,
+          },
+        });
 
-      this.prisma.refreshToken.updateMany({
-        where: {
-          userId:
-            employee.user.id,
-          revokedAt: null,
-        },
-        data: {
-          revokedAt: now,
-        },
-      }),
-    ]);
+        await tx.projectMember.updateMany({
+          where: {
+            employeeId: id,
+            isActive: true,
+          },
+          data: {
+            isActive: false,
+            leftAt: now,
+          },
+        });
+
+        await tx.refreshToken.updateMany({
+          where: {
+            userId: employee.user.id,
+            revokedAt: null,
+          },
+          data: {
+            revokedAt: now,
+          },
+        });
+
+        await tx.passwordResetToken.updateMany({
+          where: {
+            userId: employee.user.id,
+            usedAt: null,
+          },
+          data: {
+            usedAt: now,
+          },
+        });
+
+        await tx.employeeProfile.update({
+          where: {
+            id,
+          },
+          data: {
+            deletedAt: now,
+            employmentStatus:
+              'RESIGNED',
+          },
+        });
+
+        await tx.user.update({
+          where: {
+            id: employee.user.id,
+          },
+          data: {
+            isActive: false,
+            deletedAt: now,
+          },
+        });
+
+        await tx.loginHistory.create({
+          data: {
+            userId: employee.user.id,
+            eventType:
+              LoginEventType.SESSION_REVOKED,
+            identifier:
+              employee.username ??
+              employee.user.email ??
+              employee.user.phone ??
+              employee.employeeId,
+            failureReason:
+              'Team member removed by Super Admin',
+          },
+        });
+
+        await tx.activityLog.create({
+          data: {
+            userId: access.userId,
+            action:
+              'TEAM_MEMBER_REMOVED',
+            entityType: 'EMPLOYEE',
+            entityId: id,
+            newValue: {
+              employmentStatus:
+                'RESIGNED',
+              loginActive: false,
+            },
+            metadata: {
+              source:
+                'SUPER_ADMIN_SETTINGS_TEAM_MEMBER_MANAGEMENT',
+              historyPreserved: true,
+              previousEmployeeId:
+                employee.employeeId,
+              previousFullName:
+                employee.fullName,
+              previousEmploymentStatus:
+                employee.employmentStatus,
+            },
+          },
+        });
+      },
+    );
 
     return {
       success: true,
       message:
-        'Employee removed successfully.',
+        'Team member removed. Login access is disabled and historical work is preserved.',
     };
   }
 }

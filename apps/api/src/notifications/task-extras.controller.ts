@@ -26,6 +26,7 @@ import {
   SetupTaskStructureDto,
   UpdateChecklistItemDto,
   UpdateSubtaskDto,
+  UpdateSubtaskWorkflowDto,
 } from './dto/task-extras.dto';
 import { TaskExtrasService } from './task-extras.service';
 
@@ -120,6 +121,32 @@ export class SubtasksController {
     @Body() dto: UpdateSubtaskDto,
   ) {
     return this.service.updateSubtask(id, userId(request), dto);
+  }
+
+  @Get('task/:taskId/workflow')
+  @Permissions('tasks.view')
+  workflow(
+    @Req() request: any,
+    @Param('taskId') taskId: string,
+  ) {
+    return this.service.subtaskWorkflow(
+      taskId,
+      userId(request),
+    );
+  }
+
+  @Patch(':id/workflow')
+  @Permissions('tasks.update')
+  updateWorkflow(
+    @Req() request: any,
+    @Param('id') id: string,
+    @Body() dto: UpdateSubtaskWorkflowDto,
+  ) {
+    return this.service.updateSubtaskWorkflow(
+      id,
+      userId(request),
+      dto,
+    );
   }
 
   @Patch(':id/complete')

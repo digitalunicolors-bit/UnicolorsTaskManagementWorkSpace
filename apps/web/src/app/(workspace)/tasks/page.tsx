@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  ChangeEvent,
   FormEvent,
   ReactNode,
   useCallback,
@@ -11,13 +12,15 @@ import {
 
 import {
   AlertTriangle,
+  CheckCircle2,
   Edit3,
-  Flag,
   Loader2,
   Link2,
   ListChecks,
   Mic,
   Paperclip,
+  Pause,
+  Play,
   Plus,
   Repeat2,
   Tags,
@@ -30,10 +33,12 @@ import {
 } from 'lucide-react';
 
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 import { useAuth } from '@/components/auth/auth-provider';
 import { TaskCommunicationPanel } from '@/components/tasks/task-communication-panel';
+import { TaskVoiceNotesPanel } from '@/components/tasks/task-voice-notes-panel';
+import { appDialog } from '@/components/ui/app-dialog-provider';
 type Priority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
 
 interface TaskStatus {
@@ -90,9 +95,27 @@ interface SubtaskRecord {
   title: string;
   description?: string | null;
   assignedEmployeeId?: string | null;
+  assignedEmployee?: {
+    id: string;
+    employeeId: string;
+    fullName: string;
+    designation?: string | null;
+  } | null;
   isCompleted: boolean;
   completedAt?: string | null;
   sortOrder: number;
+}
+
+type SubtaskWorkflowStatus =
+  | 'PENDING'
+  | 'STARTED'
+  | 'PAUSED'
+  | 'COMPLETED';
+
+interface SubtaskWorkflowItem {
+  id: string;
+  status: SubtaskWorkflowStatus;
+  canControl: boolean;
 }
 
 interface ChecklistRecord {
@@ -234,6 +257,12 @@ type ModalMode =
   | 'view'
   | null;
 
+type WorkflowAction =
+  | 'submit-review'
+  | 'request-changes'
+  | 'resume-work'
+  | 'approve';
+
 function getErrorMessage(
   value: unknown,
   fallback: string,
@@ -294,6 +323,7 @@ export default function TasksPage() {
   } = useAuth();
 
   const searchParams = useSearchParams();
+  const router = useRouter();
 
 const criticalMode =
   searchParams.get('critical') === '1';
@@ -306,6 +336,16 @@ const linkedProjectId =
 
 const linkedDepartmentId =
   searchParams.get('departmentId') ?? '';
+
+const requestedTaskId =
+  searchParams.get('task') ?? '';
+
+const openedFromKanban =
+  searchParams.get('from') === 'kanban';
+
+const myTasksMode =
+  searchParams.get('mine') === '1';
+
 
   const isAdmin =
     Boolean(
@@ -368,8 +408,6 @@ const linkedDepartmentId =
   const [statusId, setStatusId] =
     useState('');
 
-  const [priority, setPriority] =
-    useState('');
 
   const [loading, setLoading] =
     useState(true);
@@ -387,6 +425,16 @@ const linkedDepartmentId =
     selectedTask,
     setSelectedTask,
   ] = useState<Task | null>(null);
+
+  const [
+    pendingWorkflowAction,
+    setPendingWorkflowAction,
+  ] = useState<WorkflowAction | null>(null);
+
+  const [
+    workflowNote,
+    setWorkflowNote,
+  ] = useState('');
    
   const canCreate =
      hasPermission('tasks.create');
@@ -504,10 +552,10 @@ const canManageFiles =
           );
         }
 
-        if (priority) {
+        if (myTasksMode) {
           params.set(
-            'priority',
-            priority,
+            'mine',
+            'true',
           );
         }
 
@@ -530,7 +578,7 @@ const canManageFiles =
       request,
       search,
       statusId,
-      priority,
+      myTasksMode,
     ]);
 
   const loadOptions =
@@ -586,6 +634,36 @@ const canManageFiles =
   useEffect(() => {
     void loadOptions();
   }, [loadOptions]);
+
+  useEffect(() => {
+    if (!requestedTaskId) {
+      return;
+    }
+
+    let active = true;
+
+    void request<Task>(
+      `/tasks/${requestedTaskId}`,
+    )
+      .then((fresh) => {
+        if (!active) return;
+        setSelectedTask(fresh);
+        setError('');
+        setModal('view');
+      })
+      .catch((err) => {
+        if (!active) return;
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'Unable to load task.',
+        );
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [request, requestedTaskId]);
 
   useEffect(() => {
     const timer =
@@ -655,24 +733,21 @@ const canManageFiles =
   setModal(null);
   setSelectedTask(null);
   setError('');
+
+  if (openedFromKanban) {
+    router.replace('/kanban');
+  }
 };
 
-const runWorkflowAction = async (
-  action:
-    | 'submit-review'
-    | 'request-changes'
-    | 'resume-work'
-    | 'approve',
+const openWorkflowAction = (
+  action: WorkflowAction,
 ) => {
-  if (!selectedTask) {
-    return;
-  }
+  setWorkflowNote('');
+  setPendingWorkflowAction(action);
+};
 
-  const note = window.prompt(
-    'Add a note (optional):',
-  );
-
-  if (note === null) {
+const runWorkflowAction = async () => {
+  if (!selectedTask || !pendingWorkflowAction) {
     return;
   }
 
@@ -682,7 +757,7 @@ const runWorkflowAction = async (
   try {
     const updatedTask =
       await request<Task>(
-        `/tasks/${selectedTask.id}/${action}`,
+        `/tasks/${selectedTask.id}/${pendingWorkflowAction}`,
         {
           method: 'POST',
           headers: {
@@ -691,13 +766,15 @@ const runWorkflowAction = async (
           },
           body: JSON.stringify({
             note:
-              note.trim() ||
+              workflowNote.trim() ||
               undefined,
           }),
         },
       );
 
     setSelectedTask(updatedTask);
+    setPendingWorkflowAction(null);
+    setWorkflowNote('');
 
     await loadTasks();
   } catch (err) {
@@ -833,9 +910,7 @@ const runWorkflowAction = async (
             String(form.get('categoryId') ?? '') || undefined,
           statusId:
             String(form.get('statusId') ?? '') || undefined,
-          priority: form.has('priority')
-            ? String(form.get('priority') ?? 'MEDIUM')
-            : undefined,
+          priority: 'HIGH',
           dueAt:
             normalizeDateTime(
               String(form.get('dueAt') ?? ''),
@@ -1149,10 +1224,7 @@ const runWorkflowAction = async (
                 ) ?? '',
               ) || null,
 
-           priority: String(
-              form.get('priority') ??
-                'MEDIUM',
-            ),
+           priority: 'HIGH',
 
             dueAt:
               normalizeDateTime(
@@ -1303,9 +1375,12 @@ const runWorkflowAction = async (
     task: Task,
   ) => {
     const confirmed =
-      window.confirm(
-        `Delete "${task.title}"?`,
-      );
+      await appDialog.confirm({
+        title: 'Delete task',
+        message: `Delete "${task.title}"?`,
+        confirmLabel: 'Delete',
+        tone: 'danger',
+      });
 
     if (!confirmed) {
       return;
@@ -1321,11 +1396,13 @@ const runWorkflowAction = async (
 
       await loadTasks();
     } catch (err) {
-      window.alert(
-        err instanceof Error
-          ? err.message
-          : 'Unable to delete task.',
-      );
+      await appDialog.alert({
+        title: 'Unable to delete task',
+        message:
+          err instanceof Error
+            ? err.message
+            : 'Unable to delete task.',
+      });
     }
   };
 
@@ -1334,7 +1411,7 @@ const runWorkflowAction = async (
       <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
         <div>
           <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-950">
-            {isTeamMember ? 'My Tasks' : 'Tasks'}
+            {myTasksMode || isTeamMember ? 'My Tasks' : 'Tasks'}
           </h1>
 
         </div>
@@ -1351,7 +1428,7 @@ const runWorkflowAction = async (
             Refresh
           </button>
 
-          {(isAdmin || isManager) && canCreate && (
+          {!myTasksMode && (isAdmin || isManager) && canCreate && (
             <Link
               href="/tasks?critical=1"
               aria-label="Critical Task"
@@ -1362,7 +1439,7 @@ const runWorkflowAction = async (
             </Link>
           )}
 
-          {canCreate && (
+          {!myTasksMode && canCreate && (
             <button
               type="button"
               onClick={openCreate}
@@ -1376,7 +1453,7 @@ const runWorkflowAction = async (
       </div>
 
       <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="grid gap-3 border-b border-slate-100 p-4 md:grid-cols-[1fr_auto_auto]">
+        <div className="grid gap-3 border-b border-slate-100 p-4 md:grid-cols-[1fr_auto]">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
 
@@ -1417,30 +1494,6 @@ const runWorkflowAction = async (
             )}
           </select>
 
-          <select
-            value={priority}
-            onChange={(event) =>
-              setPriority(
-                event.target.value,
-              )
-            }
-            className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm"
-          >
-            <option value="">
-              All Priorities
-            </option>
-
-            {meta.priorities.map(
-              (item) => (
-                <option
-                  key={item}
-                  value={item}
-                >
-                  {item}
-                </option>
-              ),
-            )}
-          </select>
         </div>
 
         {error && !modal && (
@@ -1534,6 +1587,16 @@ const runWorkflowAction = async (
               onChanged={refreshSelectedTask}
             />
 
+            <TaskVoiceNotesPanel
+              taskId={selectedTask.id}
+              canUpload={canUploadFiles}
+              canDownload={canDownloadFiles}
+              canManageFiles={canManageFiles}
+              onChanged={() => {
+                void refreshSelectedTask();
+              }}
+            />
+
             <TaskCommunicationPanel
               taskId={selectedTask.id}
               canComment={canComment}
@@ -1555,7 +1618,7 @@ const runWorkflowAction = async (
         type="button"
         disabled={saving}
         onClick={() =>
-          void runWorkflowAction(
+          openWorkflowAction(
             'submit-review',
           )
         }
@@ -1579,7 +1642,7 @@ const runWorkflowAction = async (
         type="button"
         disabled={saving}
         onClick={() =>
-          void runWorkflowAction(
+          openWorkflowAction(
             'request-changes',
           )
         }
@@ -1600,7 +1663,7 @@ const runWorkflowAction = async (
         type="button"
         disabled={saving}
         onClick={() =>
-          void runWorkflowAction(
+          openWorkflowAction(
             'approve',
           )
         }
@@ -1619,7 +1682,7 @@ const runWorkflowAction = async (
         type="button"
         disabled={saving}
         onClick={() =>
-          void runWorkflowAction(
+          openWorkflowAction(
             'resume-work',
           )
         }
@@ -1631,6 +1694,23 @@ const runWorkflowAction = async (
 </div>
           </Modal>
         )}
+
+      {pendingWorkflowAction && selectedTask && (
+        <WorkflowNoteDialog
+          action={pendingWorkflowAction}
+          note={workflowNote}
+          saving={saving}
+          onNoteChange={setWorkflowNote}
+          onCancel={() => {
+            if (saving) return;
+            setPendingWorkflowAction(null);
+            setWorkflowNote('');
+          }}
+          onConfirm={() => {
+            void runWorkflowAction();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -1686,10 +1766,6 @@ function TasksTable({
 
             <th className="px-5 py-4">
               Due
-            </th>
-
-            <th className="px-5 py-4">
-              Priority
             </th>
 
             <th className="px-5 py-4">
@@ -1768,14 +1844,6 @@ function TasksTable({
                       task.dueAt,
                     )}
                   </span>
-                </td>
-
-                <td className="px-5 py-4">
-                  <PriorityBadge
-                    priority={
-                      task.priority
-                    }
-                  />
                 </td>
 
                 <td className="px-5 py-4">
@@ -1939,16 +2007,6 @@ function TaskForm({
     selectedProjectId,
   ]);
 
-  const [selectedPriority, setSelectedPriority] =
-    useState<Priority>(
-      task?.priority ??
-        projects.find(
-          (project) =>
-            project.id ===
-            task?.projectId,
-        )?.priority ??
-        'MEDIUM',
-    );
 
   const getProjectClientId = (project: Project) =>
     project.clientId ?? project.client?.id ?? '';
@@ -1981,11 +2039,6 @@ function TaskForm({
     if (!selectedProject) {
       setSelectedProjectId('');
 
-      if (!task) {
-        setSelectedPriority(
-          'MEDIUM',
-        );
-      }
 
       return;
     }
@@ -1994,11 +2047,6 @@ function TaskForm({
     if (value && projectClientId && projectClientId !== value) {
       setSelectedProjectId('');
 
-      if (!task) {
-        setSelectedPriority(
-          'MEDIUM',
-        );
-      }
     }
   };
 
@@ -2014,14 +2062,6 @@ function TaskForm({
     const projectClientId = getProjectClientId(selectedProject);
     if (projectClientId) setSelectedClientId(projectClientId);
 
-    if (
-      !task &&
-      selectedProject.priority
-    ) {
-      setSelectedPriority(
-        selectedProject.priority,
-      );
-    }
   };
 
   const getProjectLabel = (project: Project) => {
@@ -2170,7 +2210,7 @@ function TaskForm({
           </div>
         ) : null}
 
-        <input type="hidden" name="priority" value={selectedPriority} />
+        <input type="hidden" name="priority" value="HIGH" />
 
         <div className="lg:col-span-3">
           <Input
@@ -2301,24 +2341,7 @@ function TaskForm({
         defaultValue={task?.title ?? ''}
       />
 
-      <Select
-        name="priority"
-        label="Priority"
-        value={selectedPriority}
-        onChange={(
-          value,
-        ) =>
-          setSelectedPriority(
-            value as Priority,
-          )
-        }
-      >
-        {meta.priorities.map((priority) => (
-          <option key={priority} value={priority}>
-            {priority}
-          </option>
-        ))}
-      </Select>
+      <input type="hidden" name="priority" value="HIGH" />
 
       <Select
         name="clientId"
@@ -3295,12 +3318,6 @@ function TaskDetails({
           status={task.status}
         />
 
-        <PriorityBadge
-          priority={
-            task.priority
-          }
-        />
-
         {task.isDraft && (
           <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold">
             DRAFT
@@ -3315,17 +3332,38 @@ function TaskDetails({
         )}
       </div>
 
-      {task.description && (
-        <div>
-          <h3 className="text-sm font-bold text-slate-900">
-            Brief
-          </h3>
+      {!!task.tags?.length && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wide text-slate-400">
+            <Tags className="h-3.5 w-3.5" />
+            Tags
+          </span>
 
-          <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-600">
-            {task.description}
-          </p>
+          {task.tags.map((item) => (
+            <span
+              key={item.id}
+              className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700"
+            >
+              {item.tag.name}
+            </span>
+          ))}
         </div>
       )}
+
+      <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+        <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
+          Task / Work Brief
+        </p>
+
+        <h3 className="mt-1 text-base font-bold text-slate-950">
+          {task.title}
+        </h3>
+
+        <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-600">
+          {task.description?.trim() ||
+            'No additional brief has been added for this task.'}
+        </p>
+      </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <DetailCard
@@ -3525,6 +3563,9 @@ function TaskExtrasPanel({
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [subtaskWorkflow, setSubtaskWorkflow] = useState<
+    Record<string, SubtaskWorkflowItem>
+  >({});
   const [newSubtask, setNewSubtask] = useState('');
   const [newSubtaskAssignee, setNewSubtaskAssignee] = useState('');
   const [newChecklist, setNewChecklist] = useState('');
@@ -3548,6 +3589,21 @@ function TaskExtrasPanel({
     [authFetch],
   );
 
+  const loadSubtaskWorkflow = useCallback(async () => {
+    try {
+      const result = await request<{ items: SubtaskWorkflowItem[] }>(
+        `/subtasks/task/${task.id}/workflow`,
+      );
+      setSubtaskWorkflow(
+        Object.fromEntries(
+          result.items.map((item) => [item.id, item]),
+        ),
+      );
+    } catch {
+      setSubtaskWorkflow({});
+    }
+  }, [request, task.id]);
+
   useEffect(() => {
     setTagText(
       (task.tags ?? []).map((item) => item.tag.name).join(', '),
@@ -3556,6 +3612,10 @@ function TaskExtrasPanel({
       (task.dependencies ?? []).map((item) => item.dependsOnTaskId),
     );
   }, [task]);
+
+  useEffect(() => {
+    void loadSubtaskWorkflow();
+  }, [loadSubtaskWorkflow]);
 
   useEffect(() => {
     if (!canManage) return;
@@ -3581,6 +3641,33 @@ function TaskExtrasPanel({
     }
   }
 
+  async function setSubtaskStatus(
+    item: SubtaskRecord,
+    status: Exclude<SubtaskWorkflowStatus, 'PENDING'>,
+  ) {
+    setBusy(true);
+    setError('');
+    try {
+      await request(`/subtasks/${item.id}/workflow`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      await Promise.all([
+        Promise.resolve(onChanged()),
+        loadSubtaskWorkflow(),
+      ]);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Unable to update subtask status.',
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function addSubtask() {
     if (!newSubtask.trim()) return;
     await mutate(`/subtasks/task/${task.id}`, {
@@ -3596,12 +3683,22 @@ function TaskExtrasPanel({
   }
 
   async function editSubtask(item: SubtaskRecord) {
-    const title = window.prompt('Subtask title:', item.title);
+    const title = await appDialog.prompt({
+      title: 'Edit subtask',
+      message: 'Update the subtask title.',
+      defaultValue: item.title,
+      placeholder: 'Subtask title',
+      required: true,
+    });
     if (title === null || !title.trim()) return;
-    const description = window.prompt(
-      'Subtask description (optional):',
-      item.description ?? '',
-    );
+
+    const description = await appDialog.prompt({
+      title: 'Subtask description',
+      message: 'Update the description if needed.',
+      defaultValue: item.description ?? '',
+      placeholder: 'Subtask description (optional)',
+      multiline: true,
+    });
     if (description === null) return;
 
     await mutate(`/subtasks/${item.id}`, {
@@ -3626,7 +3723,12 @@ function TaskExtrasPanel({
   }
 
   async function editChecklist(item: ChecklistRecord) {
-    const title = window.prompt('Checklist item:', item.title);
+    const title = await appDialog.prompt({
+      title: 'Edit checklist item',
+      defaultValue: item.title,
+      placeholder: 'Checklist item',
+      required: true,
+    });
     if (title === null || !title.trim()) return;
     await mutate(`/checklists/${item.id}`, {
       method: 'PATCH',
@@ -3696,27 +3798,57 @@ function TaskExtrasPanel({
 
           <div className="space-y-2">
             {(task.subtasks ?? []).map((item) => {
-              const employee = employees.find(
-                (person) => person.id === item.assignedEmployeeId,
-              );
+              const employee =
+                item.assignedEmployee ??
+                employees.find(
+                  (person) => person.id === item.assignedEmployeeId,
+                );
               return (
                 <div
                   key={item.id}
                   className="flex items-start gap-3 rounded-xl border border-slate-100 p-3"
                 >
-                  <input
-                    type="checkbox"
-                    checked={item.isCompleted}
-                    disabled={!canUpdate || busy}
-                    onChange={(event) =>
-                      void mutate(`/subtasks/${item.id}/complete`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ isCompleted: event.target.checked }),
-                      })
-                    }
-                    className="mt-1"
-                  />
+                  <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-50">
+                    {(() => {
+                      const workflow = subtaskWorkflow[item.id];
+                      const status = workflow?.status ??
+                        (item.isCompleted ? 'COMPLETED' : 'PENDING');
+
+                      if (status === 'COMPLETED') {
+                        return (
+                          <CheckCircle2
+                            className="h-4 w-4 text-emerald-600"
+                            aria-label="Completed"
+                          />
+                        );
+                      }
+
+                      if (status === 'STARTED') {
+                        return (
+                          <Play
+                            className="h-4 w-4 text-blue-600"
+                            aria-label="Started"
+                          />
+                        );
+                      }
+
+                      if (status === 'PAUSED') {
+                        return (
+                          <Pause
+                            className="h-4 w-4 text-amber-600"
+                            aria-label="Paused"
+                          />
+                        );
+                      }
+
+                      return (
+                        <Square
+                          className="h-3.5 w-3.5 text-slate-400"
+                          aria-label="Pending"
+                        />
+                      );
+                    })()}
+                  </div>
                   <div className="min-w-0 flex-1">
                     <p className={`text-sm font-semibold ${item.isCompleted ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
                       {item.title}
@@ -3725,6 +3857,58 @@ function TaskExtrasPanel({
                       {employee?.fullName ?? 'Unassigned'}
                     </p>
                   </div>
+                  {(() => {
+                    const workflow = subtaskWorkflow[item.id];
+                    const status = workflow?.status ??
+                      (item.isCompleted ? 'COMPLETED' : 'PENDING');
+                    const canControl = Boolean(workflow?.canControl && canUpdate);
+
+                    if (!canControl) return null;
+
+                    return (
+                      <div className="flex shrink-0 gap-1">
+                        {status !== 'STARTED' && status !== 'COMPLETED' && (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            title="Start subtask"
+                            aria-label="Start subtask"
+                            onClick={() => void setSubtaskStatus(item, 'STARTED')}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+                          >
+                            <Play className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+
+                        {status === 'STARTED' && (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            title="Pause subtask"
+                            aria-label="Pause subtask"
+                            onClick={() => void setSubtaskStatus(item, 'PAUSED')}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-50"
+                          >
+                            <Pause className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+
+                        {status !== 'COMPLETED' && (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            title="Complete subtask"
+                            aria-label="Complete subtask"
+                            onClick={() => void setSubtaskStatus(item, 'COMPLETED')}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+                          >
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
+
                   {canManage && (
                     <div className="flex gap-1">
                       <button
@@ -3739,8 +3923,14 @@ function TaskExtrasPanel({
                       <button
                         type="button"
                         disabled={busy}
-                        onClick={() => {
-                          if (!window.confirm('Delete this subtask?')) return;
+                        onClick={async () => {
+                          const confirmed = await appDialog.confirm({
+                            title: 'Delete subtask',
+                            message: 'Delete this subtask?',
+                            confirmLabel: 'Delete',
+                            tone: 'danger',
+                          });
+                          if (!confirmed) return;
                           void mutate(`/subtasks/${item.id}`, { method: 'DELETE' });
                         }}
                         aria-label="Delete subtask"
@@ -3837,8 +4027,14 @@ function TaskExtrasPanel({
                     <button
                       type="button"
                       disabled={busy}
-                      onClick={() => {
-                        if (!window.confirm('Delete this checklist item?')) return;
+                      onClick={async () => {
+                        const confirmed = await appDialog.confirm({
+                          title: 'Delete checklist item',
+                          message: 'Delete this checklist item?',
+                          confirmLabel: 'Delete',
+                          tone: 'danger',
+                        });
+                        if (!confirmed) return;
                         void mutate(`/checklists/${item.id}`, { method: 'DELETE' });
                       }}
                       aria-label="Delete checklist item"
@@ -4074,6 +4270,85 @@ function PeopleSelector({
   );
 }
 
+function WorkflowNoteDialog({
+  action,
+  note,
+  saving,
+  onNoteChange,
+  onCancel,
+  onConfirm,
+}: {
+  action: WorkflowAction;
+  note: string;
+  saving: boolean;
+  onNoteChange: (value: string) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const labels: Record<WorkflowAction, string> = {
+    'submit-review': 'Submit for Review',
+    'request-changes': 'Request Changes',
+    'resume-work': 'Resume Work',
+    approve: 'Approve Task',
+  };
+
+  return (
+    <div className="fixed inset-0 z-[140] flex items-center justify-center bg-slate-950/45 p-4">
+      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-base font-bold text-slate-950">
+              {labels[action]}
+            </h3>
+            <p className="mt-1 text-xs text-slate-500">
+              Add a note if needed.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={saving}
+            aria-label="Close"
+            className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-100 disabled:opacity-50"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <textarea
+          autoFocus
+          rows={2}
+          value={note}
+          onChange={(event) => onNoteChange(event.target.value)}
+          placeholder="Note (optional)"
+          className="mt-4 min-h-20 w-full resize-none rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none transition focus:border-slate-400"
+        />
+
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={saving}
+            className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={saving}
+            className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-50"
+          >
+            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+            Continue
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Modal({
   title,
   error,
@@ -4192,7 +4467,7 @@ function Select({
           ? {
               value,
               onChange: (
-                event: React.ChangeEvent<HTMLSelectElement>,
+                event: ChangeEvent<HTMLSelectElement>,
               ) =>
                 onChange?.(
                   event.target
@@ -4282,38 +4557,6 @@ function DetailCard({
         {value}
       </p>
     </div>
-  );
-}
-
-function PriorityBadge({
-  priority,
-}: {
-  priority: Priority;
-}) {
-  const styles: Record<
-    Priority,
-    string
-  > = {
-    LOW:
-      'bg-slate-100 text-slate-600',
-
-    MEDIUM:
-      'bg-blue-50 text-blue-700',
-
-    HIGH:
-      'bg-orange-50 text-orange-700',
-
-    URGENT:
-      'bg-red-50 text-red-700',
-  };
-
-  return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${styles[priority]}`}
-    >
-      <Flag className="h-3 w-3" />
-      {priority}
-    </span>
   );
 }
 

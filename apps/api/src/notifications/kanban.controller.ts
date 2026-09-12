@@ -86,6 +86,20 @@ export class KanbanController {
     );
   }
 
+  @Patch(':id/reopen')
+  @Permissions('tasks.update')
+  reopen(
+    @Req()
+    request: any,
+    @Param('id')
+    id: string,
+  ) {
+    return this.kanbanService.reopen(
+      this.userId(request),
+      id,
+    );
+  }
+
   @Patch(':id/move')
   @Permissions('tasks.update')
   move(

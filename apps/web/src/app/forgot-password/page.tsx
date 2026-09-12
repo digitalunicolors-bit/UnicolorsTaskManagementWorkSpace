@@ -149,20 +149,12 @@ export default function ForgotPasswordPage() {
         )}
 
         {devToken && (
-          <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4">
-            <p className="text-xs font-bold uppercase tracking-wider text-amber-800">
-              Development only
-            </p>
-
-            <p className="mt-2 break-all text-xs text-amber-700">
-              {devToken}
-            </p>
-
+          <div className="mt-5">
             <Link
               href={`/reset-password?token=${encodeURIComponent(
                 devToken,
               )}`}
-              className="mt-4 inline-flex rounded-lg bg-amber-900 px-4 py-2 text-sm font-semibold text-white"
+              className="inline-flex w-full items-center justify-center rounded-xl bg-slate-950 px-4 py-3.5 text-sm font-bold text-white transition hover:bg-slate-800"
             >
               Continue to reset
             </Link>

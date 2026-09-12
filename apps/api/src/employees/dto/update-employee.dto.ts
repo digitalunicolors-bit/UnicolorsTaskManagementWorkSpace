@@ -56,14 +56,12 @@ export class UpdateEmployeeDto {
 
   @IsIn([
     'ACTIVE',
-    'ON_LEAVE',
     'INACTIVE',
     'RESIGNED',
   ])
   @IsOptional()
   employmentStatus?:
     | 'ACTIVE'
-    | 'ON_LEAVE'
     | 'INACTIVE'
     | 'RESIGNED';
 

@@ -648,11 +648,15 @@ export class DepartmentsService {
             equals: name,
             mode: 'insensitive',
           },
-          deletedAt: null,
+        },
+        select: {
+          id: true,
+          deletedAt: true,
+          isActive: true,
         },
       });
 
-    if (existing) {
+    if (existing?.deletedAt === null) {
       throw new ConflictException(
         'Department already exists.',
       );
@@ -660,12 +664,23 @@ export class DepartmentsService {
 
     const result = await this.prisma.$transaction(
       async (tx) => {
-        const department =
-          await tx.department.create({
-            data: {
-              name,
-            },
-          });
+        const department = existing
+          ? await tx.department.update({
+              where: {
+                id: existing.id,
+              },
+              data: {
+                name,
+                isActive: true,
+                deletedAt: null,
+                headId: null,
+              },
+            })
+          : await tx.department.create({
+              data: {
+                name,
+              },
+            });
 
         await this.syncDepartmentPeople(
           tx,

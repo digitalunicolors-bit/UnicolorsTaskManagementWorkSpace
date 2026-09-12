@@ -11,14 +11,17 @@ import {
   ClientStatus,
   NotificationKind,
   ProjectStatus,
+  MilestoneStatus,
 } from '../generated/prisma/enums';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 import { CreateClientDto } from './dto/create-client.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
 import { UpdateClientAccountsDto } from './dto/update-client-accounts.dto';
 import { UpdateClientOnboardingDto } from './dto/update-client-onboarding.dto';
+import { ManageClientApprovalDto } from './dto/manage-client-approval.dto';
 import { ClientQueryDto } from './dto/client-query.dto';
 
 import { CreateClientContactDto } from './dto/create-client-contact.dto';
@@ -41,6 +44,7 @@ type ResolvedClientWorkflowAccess = {
   canAccounts: boolean;
   canClientServicing: boolean;
   canManageAll: boolean;
+  canManageApprovedClient: boolean;
   managedDepartments: Array<{
     id: string;
     name: string;
@@ -51,6 +55,7 @@ type ResolvedClientWorkflowAccess = {
 export class ClientsService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   private clean(value?: string) {
@@ -204,6 +209,8 @@ export class ClientsService {
       canAccounts: canManageAll || isAccounts,
       canClientServicing: canManageAll || isClientServicing,
       canManageAll,
+      canManageApprovedClient:
+        roles.includes('SUPER_ADMIN') || isBusinessDevelopment,
       managedDepartments: Array.from(
         new Map(
           departments.map((department) => [department.id, department]),
@@ -878,6 +885,285 @@ export class ClientsService {
     return this.findOne(id);
   }
 
+  async closeClient(
+    id: string,
+    access: ClientWorkflowAccessContext,
+  ) {
+    await this.requireClientServicingAccess(access);
+
+    const client =
+      await this.prisma.client.findFirst({
+        where: {
+          id,
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          name: true,
+          companyName: true,
+          isActive: true,
+          projects: {
+            where: {
+              deletedAt: null,
+            },
+            select: {
+              id: true,
+              projectManagerId: true,
+              department: {
+                select: {
+                  headId: true,
+                },
+              },
+              projectDepartments: {
+                select: {
+                  department: {
+                    select: {
+                      headId: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+          tasks: {
+            where: {
+              deletedAt: null,
+            },
+            select: {
+              id: true,
+              assignees: {
+                where: {
+                  removedAt: null,
+                },
+                select: {
+                  employeeId: true,
+                },
+              },
+              collaborators: {
+                where: {
+                  removedAt: null,
+                },
+                select: {
+                  employeeId: true,
+                },
+              },
+              reviewers: {
+                select: {
+                  employeeId: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+    if (!client) {
+      throw new NotFoundException(
+        'Client not found.',
+      );
+    }
+
+    if (!client.isActive) {
+      throw new BadRequestException(
+        'Client is already closed.',
+      );
+    }
+
+    const cancelledTaskStatus =
+      await this.prisma.taskStatus.findFirst({
+        where: {
+          deletedAt: null,
+          isActive: true,
+          code: 'CANCELLED',
+        },
+        select: {
+          id: true,
+        },
+      });
+
+    if (!cancelledTaskStatus) {
+      throw new BadRequestException(
+        'CANCELLED task status is not configured.',
+      );
+    }
+
+    const projectIds =
+      client.projects.map(
+        (project) => project.id,
+      );
+
+    const taskIds =
+      client.tasks.map(
+        (task) => task.id,
+      );
+
+    await this.prisma.$transaction(
+      async (tx) => {
+        await tx.client.update({
+          where: {
+            id,
+          },
+          data: {
+            isActive: false,
+            status:
+              ClientStatus.INACTIVE,
+          },
+        });
+
+        if (projectIds.length) {
+          await tx.project.updateMany({
+            where: {
+              id: {
+                in: projectIds,
+              },
+              deletedAt: null,
+              status: {
+                notIn: [
+                  ProjectStatus.COMPLETED,
+                  ProjectStatus.CANCELLED,
+                  ProjectStatus.ARCHIVED,
+                ],
+              },
+            },
+            data: {
+              status:
+                ProjectStatus.CANCELLED,
+              reviewStage: null,
+            },
+          });
+
+          await tx.projectMilestone.updateMany({
+            where: {
+              projectId: {
+                in: projectIds,
+              },
+              deletedAt: null,
+              status: {
+                notIn: [
+                  MilestoneStatus.COMPLETED,
+                  MilestoneStatus.CANCELLED,
+                ],
+              },
+            },
+            data: {
+              status: MilestoneStatus.CANCELLED,
+            },
+          });
+        }
+
+        if (taskIds.length) {
+          const closedStatuses =
+            await tx.taskStatus.findMany({
+              where: {
+                code: {
+                  in: [
+                    'DONE',
+                    'COMPLETED',
+                    'CANCELLED',
+                    'ARCHIVED',
+                  ],
+                },
+              },
+              select: {
+                id: true,
+              },
+            });
+
+          await tx.task.updateMany({
+            where: {
+              id: {
+                in: taskIds,
+              },
+              deletedAt: null,
+              statusId: {
+                notIn:
+                  closedStatuses.map(
+                    (status) => status.id,
+                  ),
+              },
+            },
+            data: {
+              statusId:
+                cancelledTaskStatus.id,
+            },
+          });
+
+          await tx.recurringTask.updateMany({
+            where: {
+              templateTaskId: {
+                in: taskIds,
+              },
+              deletedAt: null,
+            },
+            data: {
+              isActive: false,
+              nextRunAt: null,
+            },
+          });
+        }
+      },
+    );
+
+    const employeeIds =
+      new Set<string>();
+
+    client.projects.forEach(
+      (project) => {
+        if (project.projectManagerId) {
+          employeeIds.add(
+            project.projectManagerId,
+          );
+        }
+
+        if (project.department?.headId) {
+          employeeIds.add(
+            project.department.headId,
+          );
+        }
+
+        project.projectDepartments.forEach(
+          (link) => {
+            if (link.department.headId) {
+              employeeIds.add(
+                link.department.headId,
+              );
+            }
+          },
+        );
+      },
+    );
+
+    client.tasks.forEach((task) => {
+      task.assignees.forEach((item) =>
+        employeeIds.add(item.employeeId),
+      );
+      task.collaborators.forEach((item) =>
+        employeeIds.add(item.employeeId),
+      );
+      task.reviewers.forEach((item) =>
+        employeeIds.add(item.employeeId),
+      );
+    });
+
+    if (employeeIds.size) {
+      await this.notifications.notifyEmployees(
+        [...employeeIds],
+        {
+          kind:
+            NotificationKind.USER_MENTIONED,
+          title: 'Client closed',
+          message:
+            `${client.companyName ?? client.name} has been closed. Open projects and tasks have been stopped.`,
+          entityType: 'CLIENT',
+          entityId: client.id,
+          redirectPath: '/clients',
+        },
+      );
+    }
+
+    return this.findOne(id);
+  }
+
   private assertOnboardingTransition(
     current: ClientOnboardingStage,
     next: ClientOnboardingStage,
@@ -1145,6 +1431,160 @@ export class ClientsService {
     return this.findOne(id);
   }
 
+  async manageClientApproval(
+    id: string,
+    dto: ManageClientApprovalDto,
+    access: ClientWorkflowAccessContext,
+  ) {
+    const workflowAccess = await this.resolveWorkflowAccess(access);
+
+    if (!workflowAccess.canManageApprovedClient) {
+      throw new ForbiddenException(
+        'Only Super Admin or Business Development can manage an approved client.',
+      );
+    }
+
+    const client = await this.findOne(id);
+
+    const wasApprovedBefore = Boolean(
+      client.accountsHandoverAt ||
+      client.onboardingStage === ClientOnboardingStage.APPROVED,
+    );
+
+    if (!wasApprovedBefore) {
+      throw new BadRequestException(
+        'Approve the client through the T&C workflow first.',
+      );
+    }
+
+    const note = this.clean(dto.note);
+    const now = new Date();
+
+    let nextStage = client.onboardingStage;
+    let nextStatus = client.status;
+    let nextApprovalAt = client.clientApprovalAt;
+
+    if (dto.action === 'APPROVE') {
+      nextStage = ClientOnboardingStage.APPROVED;
+      nextStatus = ClientStatus.ACTIVE;
+      nextApprovalAt = now;
+    } else if (dto.action === 'UNAPPROVE') {
+      if (!note) {
+        throw new BadRequestException(
+          'Add a reason before unapproving the client.',
+        );
+      }
+      nextStage = ClientOnboardingStage.REJECTED;
+      nextStatus = ClientStatus.ON_HOLD;
+      nextApprovalAt = null;
+    } else {
+      if (!note) {
+        throw new BadRequestException(
+          'Add a discussion note.',
+        );
+      }
+      nextStage = ClientOnboardingStage.FOLLOW_UP;
+      nextStatus = ClientStatus.ON_HOLD;
+      nextApprovalAt = null;
+    }
+
+    const firstAccountsHandover =
+      dto.action === 'APPROVE' && !client.accountsHandoverAt;
+
+    const accounts = firstAccountsHandover
+      ? await this.accountsRecipients()
+      : null;
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.client.update({
+        where: { id },
+        data: {
+          onboardingStage: nextStage,
+          status: nextStatus,
+          clientApprovalAt: nextApprovalAt,
+          clientApprovalNote:
+            dto.action === 'APPROVE'
+              ? note ?? client.clientApprovalNote
+              : note,
+          ...(firstAccountsHandover
+            ? {
+                accountsHandoverAt: now,
+                accountsStage: ClientAccountsStage.NEW_HANDOVER,
+              }
+            : {}),
+        },
+      });
+
+      await tx.activityLog.create({
+        data: {
+          userId: workflowAccess.userId,
+          action: `CLIENT_${dto.action}`,
+          entityType: 'CLIENT',
+          entityId: id,
+          previousValue: {
+            onboardingStage: client.onboardingStage,
+            status: client.status,
+          },
+          newValue: {
+            onboardingStage: nextStage,
+            status: nextStatus,
+            note,
+          },
+          metadata: {
+            source: 'MANAGE_CLIENT_APPROVAL',
+            accountsHandoverPreserved: Boolean(client.accountsHandoverAt),
+          },
+        },
+      });
+
+      if (accounts?.userIds.length) {
+        await tx.notification.createMany({
+          data: accounts.userIds.map((userId) => ({
+            userId,
+            actorId: workflowAccess.userId,
+            kind: NotificationKind.USER_MENTIONED,
+            title: 'Client approved · Accounts handover',
+            message: `${client.companyName ?? client.name} has been approved. Please start Accounts & Quotation processing.`,
+            entityType: 'CLIENT',
+            entityId: id,
+            redirectPath: '/clients?onboardingStage=APPROVED',
+          })),
+        });
+      }
+    });
+
+    if (
+      !firstAccountsHandover &&
+      client.accountsHandoverAt &&
+      dto.action !== 'APPROVE'
+    ) {
+      try {
+        const accountsRecipients = await this.accountsRecipients();
+        if (accountsRecipients.userIds.length) {
+          await this.notifications.notifyUsers(
+            accountsRecipients.userIds,
+            {
+              actorId: workflowAccess.userId ?? undefined,
+              kind: NotificationKind.USER_MENTIONED,
+              title:
+                dto.action === 'UNAPPROVE'
+                  ? 'Client approval withdrawn'
+                  : 'Client moved to discussion',
+              message: `${client.companyName ?? client.name}: ${note ?? 'Client approval status changed.'}`,
+              entityType: 'CLIENT',
+              entityId: id,
+              redirectPath: '/clients',
+            },
+          );
+        }
+      } catch {
+        // Approval state should still be saved even if Accounts is not configured.
+      }
+    }
+
+    return this.findOne(id);
+  }
+
   async getAccountsDashboard(
     access: ClientWorkflowAccessContext,
   ) {
@@ -1167,16 +1607,27 @@ export class ClientsService {
 
     const [
       newHandovers,
+      teamTotalQuotations,
       quotationPrepared,
       awaitingClientConfirmation,
       readyForClientServicing,
       handedToClientServicing,
       recentClients,
+      quotationAuditLogs,
+      accountsEmployee,
     ] = await Promise.all([
       this.prisma.client.count({
         where: {
           ...baseWhere,
           accountsStage: ClientAccountsStage.NEW_HANDOVER,
+        },
+      }),
+      this.prisma.client.count({
+        where: {
+          ...baseWhere,
+          quotationPreparedAt: {
+            not: null,
+          },
         },
       }),
       this.prisma.client.count({
@@ -1226,11 +1677,91 @@ export class ClientsService {
           },
         },
       }),
+      this.prisma.activityLog.findMany({
+        where: {
+          entityType: 'CLIENT',
+          action: 'CLIENT_UPDATED',
+          entityId: {
+            not: null,
+          },
+          userId: {
+            not: null,
+          },
+        },
+        select: {
+          userId: true,
+          entityId: true,
+          newValue: true,
+          createdAt: true,
+        },
+        orderBy: {
+          createdAt: 'asc',
+        },
+      }),
+      workflowAccess.employeeId
+        ? this.prisma.employeeProfile.findUnique({
+            where: {
+              id: workflowAccess.employeeId,
+            },
+            select: {
+              fullName: true,
+            },
+          })
+        : Promise.resolve(null),
     ]);
+
+    // Audit logs let the Accounts dashboard show a genuine per-person
+    // lifetime quotation count without changing the Client schema.
+    // Count each client only once and credit the first user who prepared it.
+    const firstPreparerByClient = new Map<string, string>();
+
+    for (const log of quotationAuditLogs) {
+      if (!log.entityId || !log.userId) {
+        continue;
+      }
+
+      const value = log.newValue;
+
+      if (
+        !value ||
+        typeof value !== 'object' ||
+        Array.isArray(value)
+      ) {
+        continue;
+      }
+
+      const stage = (value as Record<string, unknown>).stage;
+
+      if (
+        stage !== ClientAccountsStage.QUOTATION_PREPARED ||
+        firstPreparerByClient.has(log.entityId)
+      ) {
+        continue;
+      }
+
+      firstPreparerByClient.set(log.entityId, log.userId);
+    }
+
+    const personalTotalQuotations = workflowAccess.userId
+      ? Array.from(firstPreparerByClient.values()).filter(
+          (userId) => userId === workflowAccess.userId,
+        ).length
+      : teamTotalQuotations;
+
+    const totalQuotations =
+      workflowAccess.isAccounts && workflowAccess.userId
+        ? personalTotalQuotations
+        : teamTotalQuotations;
 
     return {
       newHandovers,
       pendingQuotations: newHandovers,
+      totalQuotations,
+      teamTotalQuotations,
+      quotationPreparedByName:
+        workflowAccess.isAccounts
+          ? accountsEmployee?.fullName ?? null
+          : null,
       quotationPrepared,
       awaitingClientConfirmation,
       readyForClientServicing,
@@ -1261,6 +1792,7 @@ export class ClientsService {
       awaitingDepartmentAssignment,
       inProgress,
       awaitingClientReview,
+      completedProjects,
       recentHandovers,
     ] = await Promise.all([
       this.prisma.client.count({
@@ -1314,6 +1846,13 @@ export class ClientsService {
           client: handedClientWhere,
         },
       }),
+      this.prisma.project.count({
+        where: {
+          deletedAt: null,
+          status: ProjectStatus.COMPLETED,
+          client: handedClientWhere,
+        },
+      }),
       this.prisma.client.findMany({
         where: handedClientWhere,
         orderBy: {
@@ -1363,6 +1902,7 @@ export class ClientsService {
       awaitingDepartmentAssignment,
       inProgress,
       awaitingClientReview,
+      completedProjects,
       recentHandovers: recentHandovers.map((client) => {
         const latestProject = client.projects[0] ?? null;
 
@@ -1688,22 +2228,17 @@ export class ClientsService {
     if (
       nextStage ===
         ClientAccountsStage.QUOTATION_PREPARED &&
-      (!quotationNumber ||
-        quotationAmount === null ||
-        quotationAmount === undefined ||
-        quotationAmount <= 0)
+      !quotationNumber
     ) {
       throw new BadRequestException(
-        'Quotation number and a valid quotation amount are required.',
+        'Quotation number is required.',
       );
     }
 
     if (
       nextStage ===
         ClientAccountsStage.AWAITING_CLIENT_CONFIRMATION &&
-      (!quotationNumber ||
-        quotationAmount === null ||
-        quotationAmount === undefined)
+      !quotationNumber
     ) {
       throw new BadRequestException(
         'Prepare the quotation before marking it as sent.',

@@ -35,7 +35,7 @@ export default function DashboardRouterPage() {
 
 if (superAdminResponse.ok) {
   router.replace(
-    "/super-admin/dashboard",
+    "/kanban",
   );
   return;
 }
