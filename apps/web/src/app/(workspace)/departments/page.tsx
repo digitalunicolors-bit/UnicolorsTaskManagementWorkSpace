@@ -11,6 +11,7 @@ import {
   Building2,
   ChevronRight,
   Edit3,
+  KeyRound,
   Plus,
   RefreshCcw,
   Search,
@@ -20,6 +21,7 @@ import {
   X,
 } from 'lucide-react';
 import { useAuth } from '@/components/auth/auth-provider';
+import { appDialog } from '@/components/ui/app-dialog-provider';
 
 interface Employee {
   id: string;
@@ -119,12 +121,12 @@ function getErrorMessage(
 }
 
 export default function DepartmentsPage() {
-  const { authFetch, hasPermission } =
+  const { authFetch, hasPermission, hasRole } =
     useAuth();
 
-  const canManage = hasPermission(
-    'departments.manage',
-  );
+  const canManage =
+    hasRole('SUPER_ADMIN') &&
+    hasPermission('departments.manage');
 
   const [departments, setDepartments] =
     useState<Department[]>([]);
@@ -152,6 +154,21 @@ export default function DepartmentsPage() {
   ] = useState<Department | null>(
     null,
   );
+
+  const [
+    loginEmployee,
+    setLoginEmployee,
+  ] = useState<Employee | null>(
+    null,
+  );
+  const [
+    loginSaving,
+    setLoginSaving,
+  ] = useState(false);
+  const [
+    loginError,
+    setLoginError,
+  ] = useState('');
 
   const loadData =
     useCallback(async () => {
@@ -380,9 +397,12 @@ export default function DepartmentsPage() {
     if (!canManage) return;
 
     const confirmed =
-      window.confirm(
-        `Remove ${department.name}?`,
-      );
+      await appDialog.confirm({
+        title: 'Remove department',
+        message: `Remove ${department.name}?`,
+        confirmLabel: 'Remove',
+        tone: 'danger',
+      });
 
     if (!confirmed) return;
 
@@ -397,11 +417,100 @@ export default function DepartmentsPage() {
 
       await loadData();
     } catch (err) {
-      window.alert(
+      await appDialog.alert({
+        title: 'Department removal failed',
+        message:
+          err instanceof Error
+            ? err.message
+            : 'Department removal failed.',
+      });
+    }
+  };
+
+  const saveEmployeeLogin = async (
+    payload: {
+      username: string;
+      email?: string;
+      phone?: string;
+      temporaryPassword?: string;
+      isActive: boolean;
+    },
+  ) => {
+    if (
+      !canManage ||
+      !loginEmployee
+    ) {
+      return;
+    }
+
+    const isPendingHrLogin =
+      !loginEmployee.user.isActive &&
+      loginEmployee.employeeId.startsWith(
+        'HRP-',
+      );
+
+    setLoginSaving(true);
+    setLoginError('');
+
+    try {
+      await requestJson<Employee>(
+        isPendingHrLogin
+          ? `/employees/${loginEmployee.id}/activate-login`
+          : `/employees/${loginEmployee.id}/login`,
+        {
+          method: isPendingHrLogin
+            ? 'POST'
+            : 'PATCH',
+          headers: {
+            'Content-Type':
+              'application/json',
+          },
+          body: JSON.stringify({
+            username:
+              payload.username.trim(),
+            ...(payload.email?.trim()
+              ? {
+                  email:
+                    payload.email
+                      .trim()
+                      .toLowerCase(),
+                }
+              : {}),
+            ...(payload.phone?.trim()
+              ? {
+                  phone:
+                    payload.phone.trim(),
+                }
+              : {}),
+            ...(payload.temporaryPassword?.trim()
+              ? {
+                  temporaryPassword:
+                    payload.temporaryPassword.trim(),
+                }
+              : {}),
+            ...(!isPendingHrLogin
+              ? {
+                  isActive:
+                    payload.isActive,
+                }
+              : {}),
+          }),
+        },
+        isPendingHrLogin
+          ? 'Login creation failed.'
+          : 'Login update failed.',
+      );
+
+      setLoginEmployee(null);
+      await loadData();
+    } catch (err) {
+      setLoginError(
         err instanceof Error
           ? err.message
-          : 'Department removal failed.',
+          : 'Unable to save login details.',
       );
+    } finally {
+      setLoginSaving(false);
     }
   };
 
@@ -537,9 +646,11 @@ export default function DepartmentsPage() {
                                 department,
                               )
                             }
-                            className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                            title="Manage Department"
+                            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-xs font-bold text-slate-600 hover:bg-slate-100 hover:text-slate-900"
                           >
                             <Edit3 className="h-4 w-4" />
+                            Manage
                           </button>
 
                           <button
@@ -586,7 +697,9 @@ export default function DepartmentsPage() {
                       }
                       className="mt-4 flex w-full items-center justify-between rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-bold text-white hover:bg-slate-800"
                     >
-                      View Department Team
+                      {canManage
+                        ? 'Team & Logins'
+                        : 'View Department Team'}
                       <ChevronRight className="h-4 w-4" />
                     </button>
                   </article>
@@ -625,11 +738,30 @@ export default function DepartmentsPage() {
             detailDepartment
           }
           members={detailMembers}
+          canManage={canManage}
+          onManageLogin={(employee) => {
+            setLoginError('');
+            setLoginEmployee(employee);
+          }}
           onClose={() =>
             setDetailDepartment(
               null,
             )
           }
+        />
+      ) : null}
+
+      {loginEmployee ? (
+        <EmployeeLoginModal
+          employee={loginEmployee}
+          saving={loginSaving}
+          error={loginError}
+          onClose={() => {
+            if (loginSaving) return;
+            setLoginEmployee(null);
+            setLoginError('');
+          }}
+          onSubmit={saveEmployeeLogin}
         />
       ) : null}
     </div>
@@ -871,69 +1003,51 @@ function DepartmentModal({
             />
           ) : null}
 
-          <PersonNameInput
-            label="Team Members"
-            placeholder="Type member name and press Enter"
-            employees={employees}
-            values={members}
-            onValuesChange={
-              setMembers
-            }
-          />
+          <details className="rounded-xl border border-slate-200 bg-slate-50/60">
+            <summary className="cursor-pointer select-none px-4 py-3 text-sm font-semibold text-slate-700">
+              Team Members {members.length ? `(${members.length})` : ''}
+            </summary>
+            <div className="space-y-4 border-t border-slate-200 p-4">
+              <PersonNameInput
+                label="Team Members"
+                placeholder="Type member name and press Enter"
+                employees={employees}
+                values={members}
+                onValuesChange={setMembers}
+              />
 
-          {members
-            .filter(
-              (member) =>
-                !member.employeeId,
-            )
-            .map((member) => (
-              <div
-                key={
-                  member.key
-                }
-                className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4"
-              >
-                <div className="mb-4 flex items-center justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-black text-slate-950">
-                      {member.name}
-                    </p>
-                    <p className="text-xs font-bold text-indigo-600">
-                      New Team Member
-                    </p>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setMembers(
-                        (current) =>
-                          current.filter(
-                            (item) =>
-                              item.key !==
-                              member.key,
-                          ),
-                      )
-                    }
-                    className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-red-600"
+              {members
+                .filter((member) => !member.employeeId)
+                .map((member) => (
+                  <div
+                    key={member.key}
+                    className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4"
                   >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-
-                <LoginFields
-                  person={member}
-                  onChange={(
-                    patch,
-                  ) =>
-                    updateMember(
-                      member.key,
-                      patch,
-                    )
-                  }
-                />
-              </div>
-            ))}
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-black text-slate-950">{member.name}</p>
+                        <p className="text-xs font-bold text-indigo-600">New Team Member</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setMembers((current) =>
+                            current.filter((item) => item.key !== member.key),
+                          )
+                        }
+                        className="rounded-lg p-2 text-slate-400 hover:bg-white hover:text-red-600"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <LoginFields
+                      person={member}
+                      onChange={(patch) => updateMember(member.key, patch)}
+                    />
+                  </div>
+                ))}
+            </div>
+          </details>
 
           {department ? (
             <label className="flex items-center gap-3 rounded-xl border border-slate-200 p-4">
@@ -1519,10 +1633,16 @@ function PersonNameInput({
 function DepartmentTeamModal({
   department,
   members,
+  canManage,
+  onManageLogin,
   onClose,
 }: {
   department: Department;
   members: Employee[];
+  canManage: boolean;
+  onManageLogin: (
+    employee: Employee,
+  ) => void;
   onClose: () => void;
 }) {
   return (
@@ -1585,31 +1705,40 @@ function DepartmentTeamModal({
                       </span>
                     </div>
 
-                    <div className="mt-3 grid gap-2 text-xs sm:grid-cols-3">
-                      <LoginDetail
-                        label="Username"
-                        value={
-                          member.username
-                            ? `@${member.username}`
-                            : '—'
-                        }
-                      />
-                      <LoginDetail
-                        label="Email"
-                        value={
-                          member.user
-                            .email ||
-                          '—'
-                        }
-                      />
-                      <LoginDetail
-                        label="Phone"
-                        value={
-                          member.user
-                            .phone ||
-                          '—'
-                        }
-                      />
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                      <span
+                        className={`inline-flex rounded-full px-2.5 py-1 text-[10px] font-bold ${
+                          member.user.isActive
+                            ? 'bg-emerald-50 text-emerald-700'
+                            : member.employeeId.startsWith('HRP-')
+                              ? 'bg-amber-50 text-amber-700'
+                              : 'bg-slate-100 text-slate-600'
+                        }`}
+                      >
+                        {member.user.isActive
+                          ? 'LOGIN ACTIVE'
+                          : member.employeeId.startsWith('HRP-')
+                            ? 'LOGIN PENDING'
+                            : 'LOGIN INACTIVE'}
+                      </span>
+
+                      {canManage ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onManageLogin(
+                              member,
+                            )
+                          }
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50"
+                        >
+                          <KeyRound className="h-3.5 w-3.5" />
+                          {member.user.isActive ||
+                          !member.employeeId.startsWith('HRP-')
+                            ? 'Manage Login'
+                            : 'Create Login'}
+                        </button>
+                      ) : null}
                     </div>
                   </div>
                 ),
@@ -1629,21 +1758,287 @@ function DepartmentTeamModal({
   );
 }
 
-function LoginDetail({
-  label,
-  value,
+function EmployeeLoginModal({
+  employee,
+  saving,
+  error,
+  onClose,
+  onSubmit,
 }: {
-  label: string;
-  value: string;
+  employee: Employee;
+  saving: boolean;
+  error: string;
+  onClose: () => void;
+  onSubmit: (payload: {
+    username: string;
+    email?: string;
+    phone?: string;
+    temporaryPassword?: string;
+    isActive: boolean;
+  }) => void;
 }) {
+  const pendingHrLogin =
+    !employee.user.isActive &&
+    employee.employeeId.startsWith(
+      'HRP-',
+    );
+
+  const [
+    username,
+    setUsername,
+  ] = useState(
+    employee.username ?? '',
+  );
+  const [email, setEmail] =
+    useState(
+      employee.user.email ?? '',
+    );
+  const [phone, setPhone] =
+    useState(
+      employee.user.phone ?? '',
+    );
+  const [
+    temporaryPassword,
+    setTemporaryPassword,
+  ] = useState('');
+  const [
+    isActive,
+    setIsActive,
+  ] = useState(
+    employee.user.isActive,
+  );
+  const [
+    formError,
+    setFormError,
+  ] = useState('');
+
+  const submit = (
+    event: FormEvent<HTMLFormElement>,
+  ) => {
+    event.preventDefault();
+
+    if (
+      !username
+        .replace(/^@+/, '')
+        .trim()
+    ) {
+      setFormError(
+        'Username is required.',
+      );
+      return;
+    }
+
+    if (
+      !email.trim() &&
+      !phone.trim()
+    ) {
+      setFormError(
+        'Email or phone number is required.',
+      );
+      return;
+    }
+
+    if (
+      pendingHrLogin &&
+      temporaryPassword.length < 8
+    ) {
+      setFormError(
+        'Temporary password must contain at least 8 characters.',
+      );
+      return;
+    }
+
+    if (
+      temporaryPassword &&
+      temporaryPassword.length < 8
+    ) {
+      setFormError(
+        'New password must contain at least 8 characters.',
+      );
+      return;
+    }
+
+    setFormError('');
+
+    onSubmit({
+      username:
+        username
+          .replace(/^@+/, '')
+          .trim(),
+      email:
+        email.trim() ||
+        undefined,
+      phone:
+        phone.trim() ||
+        undefined,
+      temporaryPassword:
+        temporaryPassword ||
+        undefined,
+      isActive:
+        pendingHrLogin
+          ? true
+          : isActive,
+    });
+  };
+
   return (
-    <div className="rounded-lg bg-slate-50 p-2.5">
-      <p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">
-        {label}
-      </p>
-      <p className="mt-1 break-all font-semibold text-slate-700">
-        {value}
-      </p>
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm">
+      <form
+        onSubmit={submit}
+        className="w-full max-w-xl overflow-hidden rounded-3xl bg-white shadow-2xl"
+      >
+        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+              {pendingHrLogin
+                ? 'Create Workspace Login'
+                : 'Manage Workspace Login'}
+            </p>
+            <h3 className="mt-1 text-lg font-black text-slate-950">
+              {employee.fullName}
+            </h3>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded-xl p-2 text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="grid gap-3 p-5 sm:grid-cols-2">
+          {(error ||
+            formError) ? (
+            <div className="sm:col-span-2 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-700">
+              {formError || error}
+            </div>
+          ) : null}
+
+          <label>
+            <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              Username
+            </span>
+            <input
+              required
+              value={username}
+              onChange={(event) =>
+                setUsername(
+                  event.target.value,
+                )
+              }
+              placeholder="Username"
+              className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50"
+            />
+          </label>
+
+          <label>
+            <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              Email
+            </span>
+            <input
+              type="email"
+              value={email}
+              onChange={(event) =>
+                setEmail(
+                  event.target.value,
+                )
+              }
+              placeholder="Email"
+              className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50"
+            />
+          </label>
+
+          <label>
+            <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              Phone
+            </span>
+            <input
+              value={phone}
+              onChange={(event) =>
+                setPhone(
+                  event.target.value,
+                )
+              }
+              placeholder="Phone number"
+              className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50"
+            />
+          </label>
+
+          <label>
+            <span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              {pendingHrLogin
+                ? 'Temporary Password'
+                : 'New Password'}
+            </span>
+            <input
+              type="password"
+              required={
+                pendingHrLogin
+              }
+              minLength={8}
+              value={
+                temporaryPassword
+              }
+              onChange={(event) =>
+                setTemporaryPassword(
+                  event.target.value,
+                )
+              }
+              placeholder={
+                pendingHrLogin
+                  ? 'Temporary password'
+                  : 'Leave blank to keep current password'
+              }
+              className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:ring-4 focus:ring-indigo-50"
+            />
+          </label>
+
+          {!pendingHrLogin ? (
+            <label className="sm:col-span-2 flex items-center justify-between rounded-xl border border-slate-200 px-3 py-2.5">
+              <span className="text-sm font-semibold text-slate-700">
+                Login active
+              </span>
+              <input
+                type="checkbox"
+                checked={isActive}
+                onChange={(event) =>
+                  setIsActive(
+                    event.target.checked,
+                  )
+                }
+                className="h-4 w-4 rounded border-slate-300"
+              />
+            </label>
+          ) : null}
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+
+          <button
+            type="submit"
+            disabled={saving}
+            className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-bold text-white hover:bg-slate-800 disabled:opacity-50"
+          >
+            <KeyRound className="h-4 w-4" />
+            {saving
+              ? 'Saving...'
+              : pendingHrLogin
+                ? 'Create Login'
+                : 'Save Login'}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

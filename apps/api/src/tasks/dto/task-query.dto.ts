@@ -68,6 +68,17 @@ export class TaskQueryDto {
         : value,
   )
   @IsBoolean()
+  mine?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) =>
+    value === 'true'
+      ? true
+      : value === 'false'
+        ? false
+        : value,
+  )
+  @IsBoolean()
   overdue?: boolean;
 
   @IsOptional()

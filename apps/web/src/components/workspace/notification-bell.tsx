@@ -280,7 +280,7 @@ export function NotificationBell() {
           void handleToggle()
         }
         aria-label="Notifications"
-        className="relative rounded-xl border border-[#DDE8F0] bg-white/70 p-2.5 text-[#252B37] transition hover:bg-white"
+        className="relative rounded-xl border border-[#CFFAFE] bg-white/70 p-2.5 text-[#0F172A] transition hover:bg-white"
       >
         <Bell className="h-4 w-4" />
 
@@ -294,8 +294,8 @@ export function NotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-11 z-50 w-[340px] overflow-hidden rounded-2xl border border-[#DDE8F0] bg-white shadow-2xl sm:w-[390px]">
-          <div className="flex items-center justify-between border-b border-[#DDE8F0] px-4 py-3">
+        <div className="absolute right-0 top-11 z-50 w-[340px] overflow-hidden rounded-2xl border border-[#CFFAFE] bg-white shadow-2xl sm:w-[390px]">
+          <div className="flex items-center justify-between border-b border-[#CFFAFE] px-4 py-3">
             <div>
               <h3 className="text-sm font-bold text-slate-900">
                 Notifications
@@ -319,7 +319,7 @@ export function NotificationBell() {
                 onClick={() =>
                   void markAllAsRead()
                 }
-                className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold text-[#252B37] transition hover:bg-[#F9FAFB]"
+                className="flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-semibold text-[#0F172A] transition hover:bg-[#F9FAFB]"
               >
                 <CheckCheck className="h-3.5 w-3.5" />
                 Mark all read
@@ -368,8 +368,8 @@ export function NotificationBell() {
                         <div
                           className={`h-2.5 w-2.5 rounded-full ${
                             item.isRead
-                              ? 'bg-[#DDE8F0]'
-                              : 'bg-[#4F6F8F]'
+                              ? 'bg-[#CFFAFE]'
+                              : 'bg-[#0891B2]'
                           }`}
                         />
                       </div>
@@ -381,7 +381,7 @@ export function NotificationBell() {
                           </p>
 
                           {!item.isRead && (
-                            <span className="shrink-0 rounded-full bg-[#DDE8F0] px-2 py-0.5 text-[10px] font-bold uppercase text-[#252B37]">
+                            <span className="shrink-0 rounded-full bg-[#CFFAFE] px-2 py-0.5 text-[10px] font-bold uppercase text-[#0F172A]">
                               New
                             </span>
                           )}
@@ -404,7 +404,7 @@ export function NotificationBell() {
             )}
           </div>
 
-          <div className="border-t border-[#DDE8F0] bg-[#F9FAFB] px-4 py-3">
+          <div className="border-t border-[#CFFAFE] bg-[#F9FAFB] px-4 py-3">
             <button
               type="button"
               onClick={() => {

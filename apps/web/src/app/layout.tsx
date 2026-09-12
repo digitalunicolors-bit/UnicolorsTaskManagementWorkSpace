@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { AuthProvider } from '@/components/auth/auth-provider';
+import { AppDialogProvider } from '@/components/ui/app-dialog-provider';
 
 export const metadata: Metadata = {
   title: {
@@ -19,9 +20,11 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <AuthProvider>
-          {children}
-        </AuthProvider>
+        <AppDialogProvider>
+          <AuthProvider>
+            {children}
+          </AuthProvider>
+        </AppDialogProvider>
       </body>
     </html>
   );

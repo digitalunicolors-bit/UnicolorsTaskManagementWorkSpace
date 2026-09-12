@@ -18,9 +18,10 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '@/components/auth/auth-provider';
+import { appDialog } from '@/components/ui/app-dialog-provider';
 
 type View = 'month' | 'week' | 'day';
-type EventType = 'TASK' | 'PROJECT_DEADLINE' | 'MILESTONE' | 'RECURRING' | 'LEAVE';
+type EventType = 'TASK' | 'PROJECT_DEADLINE' | 'MILESTONE' | 'RECURRING';
 
 type CalendarEvent = {
   id: string;
@@ -129,16 +130,14 @@ const eventLabel = (event: CalendarEvent) => {
   if (event.type === 'TASK') return event.critical ? 'Critical Task' : 'Task';
   if (event.type === 'PROJECT_DEADLINE') return 'Project Deadline';
   if (event.type === 'MILESTONE') return 'Milestone';
-  if (event.type === 'RECURRING') return 'Recurring';
-  return 'Leave';
+  return 'Recurring';
 };
 
 const eventClass = (type: EventType) => {
   if (type === 'TASK') return 'border-blue-200 bg-blue-50 text-blue-900';
   if (type === 'PROJECT_DEADLINE') return 'border-violet-200 bg-violet-50 text-violet-900';
   if (type === 'MILESTONE') return 'border-amber-200 bg-amber-50 text-amber-900';
-  if (type === 'RECURRING') return 'border-emerald-200 bg-emerald-50 text-emerald-900';
-  return 'border-rose-200 bg-rose-50 text-rose-900';
+  return 'border-emerald-200 bg-emerald-50 text-emerald-900';
 };
 
 export default function CalendarPage() {
@@ -354,7 +353,13 @@ export default function CalendarPage() {
   };
 
   const remove = async (item: Recurring) => {
-    if (!window.confirm(`Remove recurring schedule for “${item.templateTask.title}”?`)) return;
+    const confirmed = await appDialog.confirm({
+      title: 'Remove recurring schedule',
+      message: `Remove recurring schedule for “${item.templateTask.title}”?`,
+      confirmLabel: 'Remove',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
     setError('');
     try {
       await api(`/recurring-tasks/${item.id}`, { method: 'DELETE' });

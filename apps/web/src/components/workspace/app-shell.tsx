@@ -4,6 +4,7 @@ import Link from 'next/link';
 import {
   usePathname,
   useRouter,
+  useSearchParams,
 } from 'next/navigation';
 import type {
   ComponentType,
@@ -55,7 +56,9 @@ import {
 
 type NavigationLabelKey =
   | 'dashboard'
+  | 'overview'
   | 'tasks'
+  | 'myTasks'
   | 'kanban'
   | 'projects'
   | 'clients'
@@ -75,6 +78,7 @@ const shellCopy = {
     workspace: 'Unicolors Workspace',
     signOut: 'Sign out',
     dashboard: 'Dashboard',
+    overview: 'Overview',
     tasks: 'Tasks',
     myTasks: 'My Tasks',
     kanban: 'Kanban',
@@ -96,6 +100,7 @@ const shellCopy = {
     workspace: 'Unicolors Workspace',
     signOut: 'साइन आउट',
     dashboard: 'डैशबोर्ड',
+    overview: 'ओवरव्यू',
     tasks: 'टास्क',
     myTasks: 'मेरे टास्क',
     kanban: 'कानबन',
@@ -117,6 +122,7 @@ const shellCopy = {
     workspace: 'Unicolors Workspace',
     signOut: 'સાઇન આઉટ',
     dashboard: 'ડેશબોર્ડ',
+    overview: 'ઓવરવ્યૂ',
     tasks: 'ટાસ્ક',
     myTasks: 'મારા ટાસ્ક',
     kanban: 'કાનબન',
@@ -228,6 +234,130 @@ const navigation: NavigationItem[] = [
   },
 ];
 
+const superAdminNavigation: NavigationItem[] = [
+  {
+    labelKey: 'kanban',
+    href: '/kanban',
+    icon: Columns3,
+    permission: 'tasks.view',
+  },
+  {
+    labelKey: 'tasks',
+    href: '/tasks',
+    icon: ListTodo,
+  },
+  {
+    labelKey: 'projects',
+    href: '/projects',
+    icon: FolderKanban,
+  },
+  {
+    labelKey: 'clients',
+    href: '/clients',
+    icon: BriefcaseBusiness,
+  },
+  {
+    labelKey: 'team',
+    href: '/team',
+    icon: Users,
+  },
+  {
+    labelKey: 'dashboard',
+    href: '/super-admin/dashboard',
+    icon: LayoutDashboard,
+  },
+  {
+    labelKey: 'departments',
+    href: '/departments',
+    icon: Building2,
+    permission: 'departments.view',
+  },
+  {
+    labelKey: 'calendar',
+    href: '/calendar',
+    icon: CalendarDays,
+  },
+  {
+    labelKey: 'timeTracking',
+    href: '/time-tracking',
+    icon: Clock3,
+    permission: 'time.manage_own',
+  },
+  {
+    labelKey: 'reports',
+    href: '/reports',
+    icon: ChartNoAxesCombined,
+  },
+  {
+    labelKey: 'activityLogs',
+    href: '/activity-logs',
+    icon: ShieldCheck,
+  },
+  {
+    labelKey: 'notifications',
+    href: '/notifications',
+    icon: Bell,
+  },
+  {
+    labelKey: 'settings',
+    href: '/settings',
+    icon: Settings,
+  },
+];
+
+const myTasksNavigationItem: NavigationItem = {
+  labelKey: 'myTasks',
+  href: '/tasks?mine=1',
+  icon: ListTodo,
+  permission: 'tasks.view',
+};
+
+const teamMemberNavigation: NavigationItem[] = [
+  {
+    labelKey: 'kanban',
+    href: '/kanban',
+    icon: Columns3,
+    permission: 'tasks.view',
+  },
+  myTasksNavigationItem,
+  {
+    labelKey: 'projects',
+    href: '/projects',
+    icon: FolderKanban,
+  },
+  {
+    labelKey: 'team',
+    href: '/team',
+    icon: Users,
+  },
+  {
+    labelKey: 'calendar',
+    href: '/calendar',
+    icon: CalendarDays,
+  },
+  {
+    labelKey: 'timeTracking',
+    href: '/time-tracking',
+    icon: Clock3,
+    permission: 'time.manage_own',
+  },
+  {
+    labelKey: 'reports',
+    href: '/reports',
+    icon: ChartNoAxesCombined,
+  },
+  {
+    labelKey: 'notifications',
+    href: '/notifications',
+    icon: Bell,
+  },
+  {
+    labelKey: 'settings',
+    href: '/settings',
+    icon: Settings,
+  },
+];
+
 const hrNavigation: NavigationItem[] = [
   {
     labelKey: 'dashboard',
@@ -247,6 +377,7 @@ const bdmNavigation: NavigationItem[] = [
     href: '/manager/dashboard',
     icon: LayoutDashboard,
   },
+  myTasksNavigationItem,
   {
     labelKey: 'clients',
     href: '/clients',
@@ -260,10 +391,16 @@ const clientServicingNavigation: NavigationItem[] = [
     href: '/manager/dashboard',
     icon: LayoutDashboard,
   },
+  myTasksNavigationItem,
   {
     labelKey: 'projects',
     href: '/projects',
     icon: FolderKanban,
+  },
+  {
+    labelKey: 'tasks',
+    href: '/tasks',
+    icon: ListTodo,
   },
   {
     labelKey: 'kanban',
@@ -310,6 +447,9 @@ export function AppShell({
   const pathname =
     usePathname();
 
+  const searchParams =
+    useSearchParams();
+
   const router =
     useRouter();
 
@@ -339,6 +479,9 @@ export function AppShell({
 
   const [sidebarExpanded, setSidebarExpanded] =
     useState(true);
+
+  const [toastMessage, setToastMessage] =
+    useState('');
 
   useEffect(() => {
     const timer = window.setInterval(
@@ -406,6 +549,31 @@ export function AppShell({
       active = false;
     };
   }, [authFetch, user?.id]);
+
+  useEffect(() => {
+    const nativeAlert = window.alert;
+
+    window.alert = (message?: unknown) => {
+      setToastMessage(String(message ?? ''));
+    };
+
+    return () => {
+      window.alert = nativeAlert;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!toastMessage) {
+      return;
+    }
+
+    const timer = window.setTimeout(
+      () => setToastMessage(''),
+      3200,
+    );
+
+    return () => window.clearTimeout(timer);
+  }, [toastMessage]);
 
   const resolvedTheme = useMemo(() => {
     if (preferences.theme === 'system') {
@@ -561,7 +729,7 @@ export function AppShell({
       (pathname === '/activity-logs' ||
         pathname.startsWith('/activity-logs/'))
     ) {
-      router.replace('/tasks');
+      router.replace(isTeamMember ? '/kanban' : '/tasks');
       return;
     }
 
@@ -570,7 +738,7 @@ export function AppShell({
       (pathname === '/departments' ||
         pathname.startsWith('/departments/'))
     ) {
-      router.replace(isManager ? '/manager/dashboard' : '/tasks');
+      router.replace(isManager ? '/manager/dashboard' : isTeamMember ? '/kanban' : '/tasks');
       return;
     }
 
@@ -580,7 +748,7 @@ export function AppShell({
       (pathname === '/clients' ||
         pathname.startsWith('/clients/'))
     ) {
-      router.replace('/tasks');
+      router.replace('/kanban');
       return;
     }
 
@@ -610,7 +778,9 @@ export function AppShell({
       const isAllowedBdmRoute =
         pathname === '/manager/dashboard' ||
         pathname === '/clients' ||
-        pathname.startsWith('/clients/');
+        pathname.startsWith('/clients/') ||
+        pathname === '/tasks' ||
+        pathname.startsWith('/tasks/');
 
       if (!isAllowedBdmRoute) {
         router.replace('/manager/dashboard');
@@ -624,6 +794,8 @@ export function AppShell({
         pathname === '/manager/dashboard' ||
         pathname === '/projects' ||
         pathname.startsWith('/projects/') ||
+        pathname === '/tasks' ||
+        pathname.startsWith('/tasks/') ||
         pathname === '/kanban' ||
         pathname.startsWith('/kanban/') ||
         pathname === '/clients' ||
@@ -664,7 +836,15 @@ export function AppShell({
     }
 
     if (
-      (isAdmin || isTeamMember) &&
+      isTeamMember &&
+      isDashboardRoute
+    ) {
+      router.replace('/kanban');
+      return;
+    }
+
+    if (
+      isAdmin &&
       isDashboardRoute
     ) {
       router.replace('/tasks');
@@ -704,24 +884,41 @@ export function AppShell({
         )),
   );
 
-  const visibleNavigation = isHrOnlyManager
-    ? hrNavigation
-    : isBdmOnlyManager
-      ? bdmNavigation
-      : isClientServicingOnlyManager
-        ? clientServicingNavigation
-        : [
-          ...(
-            (isHrManager || isBdmManager || isAccountsManager || isClientServicingManager) &&
-            !isSuperAdmin
-              ? [bdmNavigation[0]]
-              : []
-          ),
-          ...baseVisibleNavigation,
-          ...(isHrManager
-            ? [hrNavigation[1]]
-            : []),
-        ];
+  const visibleNavigation = isSuperAdmin
+    ? superAdminNavigation.filter(
+        (item) =>
+          !item.permission ||
+          hasPermission(item.permission),
+      )
+    : isHrOnlyManager
+      ? hrNavigation
+      : isTeamMember
+      ? teamMemberNavigation.filter(
+          (item) =>
+            !item.permission ||
+            hasPermission(item.permission),
+        )
+      : isBdmOnlyManager
+        ? bdmNavigation
+        : isClientServicingOnlyManager
+          ? clientServicingNavigation
+          : [
+            ...(
+              (isHrManager || isBdmManager || isAccountsManager || isClientServicingManager) &&
+              !isSuperAdmin
+                ? [bdmNavigation[0]]
+                : []
+            ),
+            ...(
+              isManager && !isHrOnlyManager
+                ? [myTasksNavigationItem]
+                : []
+            ),
+            ...baseVisibleNavigation,
+            ...(isHrManager
+              ? [hrNavigation[1]]
+              : []),
+          ];
 
   const roleLabel =
     isTeamMember
@@ -791,30 +988,53 @@ export function AppShell({
         }`}
       >
         <div
-          className={`border-b border-white/10 py-5 ${
-            sidebarExpanded ? 'px-5' : 'px-3'
+          className={`border-b border-white/10 py-4 ${
+            sidebarExpanded ? 'px-4' : 'px-2'
           }`}
         >
           <div
-            className={`flex items-center ${
-              sidebarExpanded ? 'gap-2.5' : 'justify-center'
+            className={`flex ${
+              sidebarExpanded
+                ? 'items-center justify-between gap-3'
+                : 'flex-col items-center gap-3'
             }`}
           >
-            <img
-              src="/unicolors-mark.png"
-              alt="Unicolors"
-              className="h-9 w-9 shrink-0 object-contain"
-            />
-            {sidebarExpanded && (
-              <div className={styles.sidebarLabel}>
-                <div className="text-xl font-black tracking-tight text-white">
-                  UNICOLORS
+            <div
+              className={`flex min-w-0 items-center ${
+                sidebarExpanded ? 'gap-2.5' : 'justify-center'
+              }`}
+            >
+              <img
+                src="/unicolors-mark.png"
+                alt="Unicolors"
+                className="h-9 w-9 shrink-0 object-contain"
+              />
+              {sidebarExpanded && (
+                <div className={`${styles.sidebarLabel} min-w-0`}>
+                  <div className="truncate text-xl font-black tracking-tight text-white">
+                    UNICOLORS
+                  </div>
+                  <p className="mt-0.5 truncate text-xs font-medium tracking-wide text-[#C2CBD3]/75">
+                    Task Management
+                  </p>
                 </div>
-                <p className="mt-0.5 text-xs font-medium tracking-wide text-[#C2CBD3]/75">
-                  Task Management
-                </p>
-              </div>
-            )}
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              title={sidebarExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
+              aria-label={sidebarExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
+              aria-expanded={sidebarExpanded}
+              className="inline-flex shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/10 p-2.5 text-[#C2CBD3] shadow-sm hover:bg-white/15 hover:text-white"
+            >
+              {sidebarExpanded ? (
+                <PanelLeftClose className="h-4 w-4" />
+              ) : (
+                <PanelLeftOpen className="h-4 w-4" />
+              )}
+            </button>
           </div>
         </div>
 
@@ -834,12 +1054,23 @@ export function AppShell({
                   ? '/manager/dashboard'
                   : item.href;
 
+              const isMyTasksMode =
+                searchParams.get('mine') === '1';
+
+              const itemPath =
+                itemHref.split('?')[0];
+
               const active =
-                pathname ===
-                  itemHref ||
-                pathname.startsWith(
-                  `${itemHref}/`,
-                );
+                item.labelKey === 'myTasks'
+                  ? pathname === '/tasks' &&
+                    isMyTasksMode
+                  : item.labelKey === 'tasks'
+                    ? pathname === '/tasks' &&
+                      !isMyTasksMode
+                    : pathname === itemPath ||
+                      pathname.startsWith(
+                        `${itemPath}/`,
+                      );
 
               return (
                 <Link
@@ -939,21 +1170,7 @@ export function AppShell({
 
       <div className="min-w-0 flex-1">
         <header className="sticky top-0 z-10 bg-transparent">
-          <div className="flex h-14 items-center justify-between px-4 md:px-6">
-            <button
-              type="button"
-              onClick={toggleSidebar}
-              title={sidebarExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
-              aria-label={sidebarExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
-              aria-expanded={sidebarExpanded}
-              className="hidden rounded-xl border border-[#C2CBD3]/70 bg-white/55 p-2.5 text-[#313851] shadow-sm hover:bg-white lg:inline-flex"
-            >
-              {sidebarExpanded ? (
-                <PanelLeftClose className="h-4 w-4" />
-              ) : (
-                <PanelLeftOpen className="h-4 w-4" />
-              )}
-            </button>
+          <div className="flex h-14 items-center justify-end px-4 md:px-6">
             <div className="flex items-center gap-2">
               {preferences.showHeaderDateTime && (
                 <div className="hidden text-right md:block">
@@ -989,17 +1206,28 @@ export function AppShell({
                   item.icon;
 
                 const itemHref =
-                  (isHrManager || isBdmManager) &&
+                  (isHrManager || isBdmManager || isAccountsManager || isClientServicingManager) &&
                   item.labelKey === 'dashboard'
                     ? '/manager/dashboard'
                     : item.href;
 
+                const isMyTasksMode =
+                  searchParams.get('mine') === '1';
+
+                const itemPath =
+                  itemHref.split('?')[0];
+
                 const active =
-                  pathname ===
-                    itemHref ||
-                  pathname.startsWith(
-                    `${itemHref}/`,
-                  );
+                  item.labelKey === 'myTasks'
+                    ? pathname === '/tasks' &&
+                      isMyTasksMode
+                    : item.labelKey === 'tasks'
+                      ? pathname === '/tasks' &&
+                        !isMyTasksMode
+                      : pathname === itemPath ||
+                        pathname.startsWith(
+                          `${itemPath}/`,
+                        );
 
                 return (
                   <Link
@@ -1035,7 +1263,7 @@ export function AppShell({
 
         <main className="px-4 pb-6 pt-2 md:px-6 md:pb-8 md:pt-3">
           <div key={pathname} className={styles.pageEnter}>
-            <div className="mb-4">
+            <div className="mb-3">
               <p className="text-2xl font-black tracking-tight text-[#313851]">
                 Hello, {displayName}
               </p>
@@ -1048,6 +1276,16 @@ export function AppShell({
           </div>
         </main>
       </div>
+
+      {toastMessage && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed right-4 top-20 z-[120] max-w-sm rounded-2xl border border-slate-200 bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-2xl"
+        >
+          {toastMessage}
+        </div>
+      )}
     </div>
   );
 }

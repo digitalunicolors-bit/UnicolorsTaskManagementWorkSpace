@@ -21,6 +21,9 @@ import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { CreateHrJoinRequestDto } from './dto/create-hr-join-request.dto';
 import { EmployeeQueryDto } from './dto/employee-query.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
+import { ActivateEmployeeLoginDto } from './dto/activate-employee-login.dto';
+import { UpdateEmployeeLoginDto } from './dto/update-employee-login.dto';
+import { CreateSuperAdminDto } from './dto/create-super-admin.dto';
 import { EmployeesService } from './employees.service';
 
 type AuthenticatedRequest = {
@@ -87,6 +90,35 @@ export class EmployeesController {
     );
   }
 
+  @Get('super-admins')
+  @Permissions('employees.manage')
+  findSuperAdmins(
+    @Req()
+    request?: AuthenticatedRequest,
+  ) {
+    return this.employeesService.findSuperAdmins({
+      userId: request?.user?.id,
+      roles: request?.user?.roles,
+    });
+  }
+
+  @Post('super-admins')
+  @Permissions('employees.manage')
+  createSuperAdmin(
+    @Body()
+    dto: CreateSuperAdminDto,
+    @Req()
+    request?: AuthenticatedRequest,
+  ) {
+    return this.employeesService.createSuperAdmin(
+      dto,
+      {
+        userId: request?.user?.id,
+        roles: request?.user?.roles,
+      },
+    );
+  }
+
   @Get('hr-dashboard')
   @Permissions('employees.view')
   getHrDashboard(
@@ -125,6 +157,45 @@ export class EmployeesController {
   ) {
     return this.employeesService.adminResetPassword(
       userId,
+      {
+        userId: request?.user?.id,
+        roles: request?.user?.roles,
+      },
+    );
+  }
+
+
+  @Post(':id/activate-login')
+  @Permissions('employees.manage')
+  activateLogin(
+    @Param('id') id: string,
+    @Body()
+    dto: ActivateEmployeeLoginDto,
+    @Req()
+    request?: AuthenticatedRequest,
+  ) {
+    return this.employeesService.activateWorkspaceLogin(
+      id,
+      dto,
+      {
+        userId: request?.user?.id,
+        roles: request?.user?.roles,
+      },
+    );
+  }
+
+  @Patch(':id/login')
+  @Permissions('employees.manage')
+  updateLogin(
+    @Param('id') id: string,
+    @Body()
+    dto: UpdateEmployeeLoginDto,
+    @Req()
+    request?: AuthenticatedRequest,
+  ) {
+    return this.employeesService.updateWorkspaceLogin(
+      id,
+      dto,
       {
         userId: request?.user?.id,
         roles: request?.user?.roles,
@@ -176,9 +247,15 @@ export class EmployeesController {
   @Permissions('employees.manage')
   remove(
     @Param('id') id: string,
+    @Req()
+    request?: AuthenticatedRequest,
   ) {
     return this.employeesService.remove(
       id,
+      {
+        userId: request?.user?.id,
+        roles: request?.user?.roles,
+      },
     );
   }
 }

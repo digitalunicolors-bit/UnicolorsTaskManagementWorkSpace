@@ -17,12 +17,12 @@ import {
   Clock3,
   FolderKanban,
   ListTodo,
+  Users,
 } from 'lucide-react';
 
 import { useAuth } from '@/components/auth/auth-provider';
 import {
   DashboardError,
-  DashboardHeader,
   DashboardLoading,
   RefreshButton,
   StatCard,
@@ -184,33 +184,26 @@ export default function SuperAdminDashboardPage() {
         </div>
       ) : null}
 
-      <DashboardHeader
-        eyebrow="System Control Center"
-        title="Super Admin Dashboard"
-        description=""
-        actions={
-          <>
-            <RefreshButton
-              loading={loading}
-              onClick={() => void loadDashboard()}
-            />
-            <Link
-              href="/tasks?critical=1"
-              aria-label="Critical Task"
-              title="Critical Task"
-              className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-red-600 text-white shadow-sm transition hover:bg-red-700"
-            >
-              <AlertTriangle className="h-4 w-4" />
-            </Link>
-            <Link
-              href="/tasks"
-              className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-bold text-white hover:bg-slate-800"
-            >
-              Create Task
-            </Link>
-          </>
-        }
-      />
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <RefreshButton
+          loading={loading}
+          onClick={() => void loadDashboard()}
+        />
+        <Link
+          href="/tasks?critical=1"
+          aria-label="Critical Task"
+          title="Critical Task"
+          className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-red-600 text-white shadow-sm hover:bg-red-700"
+        >
+          <AlertTriangle className="h-4 w-4" />
+        </Link>
+        <Link
+          href="/tasks"
+          className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-bold text-white hover:bg-slate-800"
+        >
+          Create Task
+        </Link>
+      </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatLink href="/super-admin/dashboard/details?view=departments">
@@ -219,6 +212,15 @@ export default function SuperAdminDashboardPage() {
             value={stats.totalDepartments}
             hint={`${stats.activeDepartments} active`}
             icon={<Building2 className="h-5 w-5" />}
+          />
+        </StatLink>
+
+        <StatLink href="/team">
+          <StatCard
+            label="Total Employees"
+            value={stats.totalEmployees}
+            hint={`${stats.activeEmployees} active`}
+            icon={<Users className="h-5 w-5" />}
           />
         </StatLink>
 

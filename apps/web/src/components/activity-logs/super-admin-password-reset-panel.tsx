@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '@/components/auth/auth-provider';
+import { appDialog } from '@/components/ui/app-dialog-provider';
 
 type Employee = {
   id: string;
@@ -185,9 +186,12 @@ export function SuperAdminPasswordResetPanel() {
   }, [employees, search]);
 
   const resetPassword = async (employee: Employee) => {
-    const confirmed = window.confirm(
-      `Reset password for ${employee.fullName}?\n\nTheir current sessions will be logged out and a new temporary password will be generated.`,
-    );
+    const confirmed = await appDialog.confirm({
+      title: 'Reset password',
+      message: `Reset password for ${employee.fullName}?\n\nTheir current sessions will be logged out and a new temporary password will be generated.`,
+      confirmLabel: 'Reset password',
+      tone: 'danger',
+    });
 
     if (!confirmed) return;
 

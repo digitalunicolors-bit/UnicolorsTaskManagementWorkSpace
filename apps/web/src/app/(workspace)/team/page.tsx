@@ -10,10 +10,12 @@ import {
 import {
   RefreshCcw,
   Search,
+  Trash2,
   Users,
 } from 'lucide-react';
 
 import { useAuth } from '@/components/auth/auth-provider';
+import { appDialog } from '@/components/ui/app-dialog-provider';
 
 interface Employee {
   id: string;
@@ -95,12 +97,6 @@ function statusClasses(
     return 'bg-emerald-50 text-emerald-700 ring-emerald-200';
   }
 
-  if (
-    employee.employmentStatus === 'ON_LEAVE'
-  ) {
-    return 'bg-amber-50 text-amber-700 ring-amber-200';
-  }
-
   return 'bg-slate-100 text-slate-600 ring-slate-200';
 }
 
@@ -109,6 +105,9 @@ export default function TeamPage() {
     authFetch,
     user,
   } = useAuth();
+
+  const isSuperAdmin =
+    Boolean(user?.roles?.includes('SUPER_ADMIN'));
 
   const isManager =
     Boolean(
@@ -142,6 +141,8 @@ export default function TeamPage() {
     useState('ALL');
   const [statusFilter, setStatusFilter] =
     useState('ALL');
+  const [removingId, setRemovingId] =
+    useState<string | null>(null);
 
   const loadTeam = useCallback(async () => {
     setLoading(true);
@@ -198,6 +199,61 @@ export default function TeamPage() {
   useEffect(() => {
     void loadTeam();
   }, [loadTeam]);
+
+
+  const removeMember = async (employee: Employee) => {
+    const confirmed = await appDialog.confirm({
+      title: 'Remove team member',
+      message: `Remove ${employee.fullName} from the workspace? Their login will be disabled and historical work will be preserved.`,
+      confirmLabel: 'Remove Member',
+      tone: 'danger',
+    });
+
+    if (!confirmed) return;
+
+    setRemovingId(employee.id);
+    setError('');
+
+    try {
+      const response = await authFetch(`/employees/${employee.id}`, {
+        method: 'DELETE',
+      });
+
+      let payload: unknown = null;
+      try {
+        payload = await response.json();
+      } catch {
+        payload = null;
+      }
+
+      if (!response.ok) {
+        const message =
+          payload &&
+          typeof payload === 'object' &&
+          'message' in payload
+            ? (payload as { message?: string | string[] }).message
+            : null;
+
+        throw new Error(
+          Array.isArray(message)
+            ? message.join(', ')
+            : typeof message === 'string'
+              ? message
+              : 'Unable to remove team member.',
+        );
+      }
+
+      await loadTeam();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Unable to remove team member.',
+      );
+    } finally {
+      setRemovingId(null);
+    }
+  };
 
   const filteredEmployees = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -355,9 +411,6 @@ export default function TeamPage() {
                 All Statuses
               </option>
               <option value="ACTIVE">Active</option>
-              <option value="ON_LEAVE">
-                On Leave
-              </option>
               <option value="INACTIVE">
                 Inactive
               </option>
@@ -487,16 +540,32 @@ export default function TeamPage() {
                       </td>
 
                       <td className="px-5 py-4">
-                        <span
-                          className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ring-1 ring-inset ${statusClasses(
-                            employee,
-                          )}`}
-                        >
-                          {employee.employmentStatus.replaceAll(
-                            '_',
-                            ' ',
-                          )}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-bold ring-1 ring-inset ${statusClasses(
+                              employee,
+                            )}`}
+                          >
+                            {employee.employmentStatus.replaceAll(
+                              '_',
+                              ' ',
+                            )}
+                          </span>
+
+                          {isSuperAdmin &&
+                            !roles.includes('SUPER_ADMIN') && (
+                              <button
+                                type="button"
+                                title="Remove member"
+                                aria-label={`Remove ${employee.fullName}`}
+                                disabled={removingId === employee.id}
+                                onClick={() => void removeMember(employee)}
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-200 bg-red-50 text-red-600 transition hover:bg-red-100 disabled:cursor-wait disabled:opacity-50"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                        </div>
                       </td>
                     </tr>
                   );

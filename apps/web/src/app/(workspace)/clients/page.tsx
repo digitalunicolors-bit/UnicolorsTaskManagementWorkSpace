@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 
 import { useAuth } from '@/components/auth/auth-provider';
+import { appDialog } from '@/components/ui/app-dialog-provider';
 
 type ClientStatus =
   | 'LEAD'
@@ -87,6 +88,7 @@ interface WorkflowAccess {
   isBusinessDevelopment: boolean;
   canOnboard: boolean;
   canManageAll: boolean;
+  canManageApprovedClient: boolean;
 }
 
 type Modal = 'create' | 'edit' | null;
@@ -416,17 +418,24 @@ export default function ClientsPage() {
     let note: string | undefined;
 
     if (stage === 'APPROVED') {
-      const confirmed = window.confirm(
-        `Approve ${client.companyName ?? client.name} and hand over to Accounts & Quotation?`,
-      );
+      const confirmed = await appDialog.confirm({
+        title: 'Approve client',
+        message: `Approve ${client.companyName ?? client.name} and hand over to Accounts & Quotation?`,
+        confirmLabel: 'Approve & hand over',
+      });
 
       if (!confirmed) {
         return;
       }
 
       note =
-        window.prompt(
-          'Approval note (optional):',
+        (
+          await appDialog.prompt({
+            title: 'Approval note',
+            message: 'Add a note if needed.',
+            placeholder: 'Approval note (optional)',
+            multiline: true,
+          })
         )?.trim() || undefined;
     }
 
@@ -435,10 +444,24 @@ export default function ClientsPage() {
       stage === 'FOLLOW_UP'
     ) {
       note =
-        window.prompt(
-          stage === 'REJECTED'
-            ? 'Reason / client feedback:'
-            : 'Follow-up note (optional):',
+        (
+          await appDialog.prompt({
+            title:
+              stage === 'REJECTED'
+                ? 'Client not approved'
+                : 'Follow-up note',
+            message:
+              stage === 'REJECTED'
+                ? 'Add the reason or client feedback.'
+                : 'Add a follow-up note if needed.',
+            placeholder:
+              stage === 'REJECTED'
+                ? 'Reason / client feedback'
+                : 'Follow-up note (optional)',
+            multiline: true,
+            required:
+              stage === 'REJECTED',
+          })
         )?.trim() || undefined;
 
       if (
@@ -479,12 +502,85 @@ export default function ClientsPage() {
     }
   };
 
+  const manageApprovedClient = async (
+    client: Client,
+    action: 'APPROVE' | 'UNAPPROVE' | 'DISCUSS',
+  ) => {
+    let note: string | undefined;
+
+    if (action === 'APPROVE') {
+      const confirmed = await appDialog.confirm({
+        title: 'Approve client',
+        message: `Approve ${client.companyName ?? client.name}? Existing Accounts / project history will be preserved.`,
+        confirmLabel: 'Approve',
+      });
+      if (!confirmed) return;
+
+      note =
+        (
+          await appDialog.prompt({
+            title: 'Approval note',
+            placeholder: 'Approval note (optional)',
+            multiline: true,
+          })
+        )?.trim() || undefined;
+    } else {
+      note =
+        (
+          await appDialog.prompt({
+            title:
+              action === 'UNAPPROVE'
+                ? 'Unapprove client'
+                : 'Discuss client',
+            message:
+              action === 'UNAPPROVE'
+                ? 'Add the reason for withdrawing approval.'
+                : 'Add the discussion / change note.',
+            placeholder:
+              action === 'UNAPPROVE'
+                ? 'Reason for unapproval'
+                : 'Discussion note',
+            multiline: true,
+            required: true,
+          })
+        )?.trim() || undefined;
+
+      if (!note) return;
+    }
+
+    setSaving(true);
+    setError('');
+
+    try {
+      await request<Client>(
+        `/clients/${client.id}/manage-approval`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action, note }),
+        },
+      );
+      await loadClients();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Unable to manage client approval.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const deleteClient = async (
     client: Client,
   ) => {
-    const confirmed = window.confirm(
-      `Delete "${client.name}"?`,
-    );
+    const confirmed = await appDialog.confirm({
+      title: 'Delete client',
+      message: `Delete "${client.name}"?`,
+      confirmLabel: 'Delete',
+      tone: 'danger',
+    });
 
     if (!confirmed) {
       return;
@@ -499,11 +595,13 @@ export default function ClientsPage() {
       );
       await loadClients();
     } catch (err) {
-      window.alert(
-        err instanceof Error
-          ? err.message
-          : 'Delete failed.',
-      );
+      await appDialog.alert({
+        title: 'Delete failed',
+        message:
+          err instanceof Error
+            ? err.message
+            : 'Delete failed.',
+      });
     }
   };
 
@@ -620,7 +718,7 @@ export default function ClientsPage() {
                     Onboarding
                   </th>
                   <th className="px-5 py-4">
-                    Workflow Action
+                    Action
                   </th>
                   <th className="px-5 py-4">
                     Manage
@@ -672,10 +770,19 @@ export default function ClientsPage() {
                         <WorkflowActions
                           client={client}
                           saving={saving}
+                          canManageApproved={Boolean(
+                            workflowAccess?.canManageApprovedClient,
+                          )}
                           onMove={(stage) =>
                             void updateOnboarding(
                               client,
                               stage,
+                            )
+                          }
+                          onManage={(action) =>
+                            void manageApprovedClient(
+                              client,
+                              action,
                             )
                           }
                         />
@@ -763,19 +870,72 @@ export default function ClientsPage() {
 function WorkflowActions({
   client,
   saving,
+  canManageApproved,
   onMove,
+  onManage,
 }: {
   client: Client;
   saving: boolean;
+  canManageApproved: boolean;
   onMove: (
     stage: Exclude<
       ClientOnboardingStage,
       'DRAFT'
     >,
   ) => void;
+  onManage: (
+    action: 'APPROVE' | 'UNAPPROVE' | 'DISCUSS',
+  ) => void;
 }) {
   const common =
     'inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-40';
+
+  const wasApprovedBefore = Boolean(client.accountsHandoverAt);
+
+  if (wasApprovedBefore && canManageApproved) {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        {client.onboardingStage === 'APPROVED' ? (
+          <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            Approved
+          </span>
+        ) : (
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => onManage('APPROVE')}
+            className={`${common} border-emerald-200 bg-emerald-50 text-emerald-700`}
+          >
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            Approve
+          </button>
+        )}
+
+        {client.onboardingStage !== 'REJECTED' && (
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => onManage('UNAPPROVE')}
+            className={`${common} border-red-200 bg-red-50 text-red-700`}
+          >
+            Unapprove
+          </button>
+        )}
+
+        {client.onboardingStage !== 'FOLLOW_UP' && (
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => onManage('DISCUSS')}
+            className={`${common} border-amber-200 bg-amber-50 text-amber-700`}
+          >
+            Discuss
+          </button>
+        )}
+      </div>
+    );
+  }
 
   if (client.onboardingStage === 'DRAFT') {
     const ready = Boolean(
@@ -929,39 +1089,48 @@ function ClientForm({
         defaultValue={client?.email ?? ''}
       />
 
-      <Textarea
-        name="primaryContacts"
-        label="Primary Contacts"
-        helper="One contact per line or comma separated"
-        defaultValue={
-          client?.primaryContacts?.join('\n') ?? ''
-        }
-      />
+      <div className="sm:col-span-2">
+        <Textarea
+          name="requirements"
+          label="Client Requirements"
+          helper="Discussed scope and expectations"
+          rows={2}
+          defaultValue={client?.requirements ?? ''}
+        />
+      </div>
 
-      <Textarea
-        name="deliverables"
-        label="Expected Deliverables"
-        helper="One deliverable per line"
-        defaultValue={
-          client?.deliverables?.join('\n') ?? ''
-        }
-      />
+      <details className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50/60">
+        <summary className="cursor-pointer select-none px-4 py-3 text-sm font-semibold text-slate-700">
+          More details
+        </summary>
+        <div className="grid gap-3 border-t border-slate-200 p-4 sm:grid-cols-2">
+          <Textarea
+            name="primaryContacts"
+            label="Primary Contacts"
+            helper="One contact per line or comma separated"
+            rows={2}
+            defaultValue={client?.primaryContacts?.join('\n') ?? ''}
+          />
 
-      <Textarea
-        name="requirements"
-        label="Client Requirements"
-        helper="Discussed scope and expectations"
-        rows={3}
-        defaultValue={client?.requirements ?? ''}
-      />
+          <Textarea
+            name="deliverables"
+            label="Expected Deliverables"
+            helper="One deliverable per line"
+            rows={2}
+            defaultValue={client?.deliverables?.join('\n') ?? ''}
+          />
 
-      <Textarea
-        name="termsConditions"
-        label="Terms & Conditions"
-        helper="Commercial / working terms"
-        rows={3}
-        defaultValue={client?.termsConditions ?? ''}
-      />
+          <div className="sm:col-span-2">
+            <Textarea
+              name="termsConditions"
+              label="Terms & Conditions"
+              helper="Commercial / working terms"
+              rows={2}
+              defaultValue={client?.termsConditions ?? ''}
+            />
+          </div>
+        </div>
+      </details>
 
       <div className="sm:col-span-2">
         <button

@@ -44,7 +44,7 @@ export class ReportsController {
   }
 
   @Get('options')
-  @Permissions('reports.view')
+  @Permissions('tasks.view')
   options(
     @Req()
     request: any,
@@ -55,7 +55,7 @@ export class ReportsController {
   }
 
   @Get('data')
-  @Permissions('reports.view')
+  @Permissions('tasks.view')
   data(
     @Req()
     request: any,

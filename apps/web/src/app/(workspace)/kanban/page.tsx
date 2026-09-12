@@ -21,6 +21,7 @@ import {
   MessageSquare,
   Paperclip,
   RefreshCw,
+  RotateCcw,
   Search,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -28,6 +29,7 @@ import { useRouter } from 'next/navigation';
 import {
   useAuth,
 } from '@/components/auth/auth-provider';
+import { appDialog } from '@/components/ui/app-dialog-provider';
 
 type ColumnCode =
   | 'TODO'
@@ -108,6 +110,7 @@ type BoardResponse = {
     canUpdate: boolean;
     canReview: boolean;
     canApprove: boolean;
+    canReopen: boolean;
   };
 };
 
@@ -271,7 +274,9 @@ function TaskCard({
   card,
   onDragStart,
   onOpen,
+  onReopen,
   busy,
+  canReopen,
 }: {
   card: Card;
   onDragStart: (
@@ -281,7 +286,11 @@ function TaskCard({
   onOpen: (
     card: Card,
   ) => void;
+  onReopen: (
+    card: Card,
+  ) => void;
   busy: boolean;
+  canReopen: boolean;
 }) {
   const primary =
     card.assignees.find(
@@ -295,6 +304,22 @@ function TaskCard({
       draggable={
         !busy
       }
+      role="button"
+      tabIndex={0}
+      onClick={() => {
+        if (!busy) {
+          onOpen(card);
+        }
+      }}
+      onKeyDown={(event) => {
+        if (
+          !busy &&
+          (event.key === 'Enter' || event.key === ' ')
+        ) {
+          event.preventDefault();
+          onOpen(card);
+        }
+      }}
       onDragStart={(
         event,
       ) =>
@@ -340,21 +365,31 @@ function TaskCard({
             )}
           </div>
 
-          <button
-            type="button"
-            onClick={() =>
-              onOpen(
-                card,
-              )
-            }
-            className="mt-3 flex w-full items-start gap-2 text-left"
-          >
+          <div className="mt-3 flex w-full items-start gap-2 text-left">
             <span className="line-clamp-2 flex-1 text-sm font-black leading-5 text-slate-900">
               {card.title}
             </span>
 
-            <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-slate-300" />
-          </button>
+            {card.column === 'DONE' && canReopen ? (
+              <button
+                type="button"
+                draggable={false}
+                title="Reopen task"
+                aria-label="Reopen task"
+                disabled={busy}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onReopen(card);
+                }}
+                onMouseDown={(event) => event.stopPropagation()}
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-50"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+              </button>
+            ) : (
+              <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-slate-300" />
+            )}
+          </div>
 
           <div className="mt-3 space-y-1.5 text-xs text-slate-500">
             <div className="flex items-center gap-2">
@@ -505,8 +540,13 @@ export default function KanbanPage() {
 
   const {
     authFetch,
+    user,
   } =
     useAuth();
+
+  const isSuperAdmin = Boolean(
+    user?.roles?.includes('SUPER_ADMIN'),
+  );
 
   const [
     board,
@@ -824,11 +864,24 @@ export default function KanbanPage() {
         target ===
         'CHANGES_REQUESTED'
       ) {
+        if (!board?.permissions.canReview) {
+          await appDialog.alert({
+            title: 'Action not allowed',
+            message: 'You are not allowed for this.',
+          });
+          return;
+        }
+
         const response =
-          window.prompt(
-            'Reason for changes:',
-            'Please make the requested corrections.',
-          );
+          await appDialog.prompt({
+            title: 'Request changes',
+            message: 'Add the reason for changes.',
+            defaultValue:
+              'Please make the requested corrections.',
+            placeholder: 'Reason for changes',
+            multiline: true,
+            required: true,
+          });
 
         if (
           response ===
@@ -847,10 +900,13 @@ export default function KanbanPage() {
         'DONE'
       ) {
         const response =
-          window.prompt(
-            'Approval note (optional):',
-            'Approved',
-          );
+          await appDialog.prompt({
+            title: 'Approve task',
+            message: 'Add an approval note if needed.',
+            defaultValue: 'Approved',
+            placeholder: 'Approval note (optional)',
+            multiline: true,
+          });
 
         if (
           response ===
@@ -925,6 +981,37 @@ export default function KanbanPage() {
         );
       }
     };
+
+  const reopenTask = async (card: Card) => {
+    const confirmed = await appDialog.confirm({
+      title: 'Reopen completed task',
+      message: `Reopen "${card.title}" and move it back to In Progress?`,
+      confirmLabel: 'Reopen Task',
+    });
+
+    if (!confirmed) return;
+
+    setMovingId(card.id);
+    setError('');
+    setSuccess('');
+
+    try {
+      const result = await request<{ message: string }>(
+        `/kanban/${card.id}/reopen`,
+        { method: 'PATCH' },
+      );
+      setSuccess(result.message);
+      await loadBoard(true);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Unable to reopen task.',
+      );
+    } finally {
+      setMovingId(null);
+    }
+  };
 
   const drop =
     async (
@@ -1129,7 +1216,7 @@ export default function KanbanPage() {
             className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
           >
             <option value="">
-              All Assignees
+              {isSuperAdmin ? 'All Employees' : 'All Assignees'}
             </option>
 
             {options.employees.map(
@@ -1328,9 +1415,11 @@ export default function KanbanPage() {
                               task,
                             ) =>
                               router.push(
-                                `/tasks?task=${task.id}`,
+                                `/tasks?task=${task.id}&from=kanban`,
                               )
                             }
+                            canReopen={Boolean(board?.permissions.canReopen)}
+                            onReopen={(task) => void reopenTask(task)}
                           />
                         ),
                       )}

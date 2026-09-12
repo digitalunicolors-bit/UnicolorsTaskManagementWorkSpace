@@ -107,6 +107,9 @@ type AccountsClient = {
 type AccountsDashboardData = {
   newHandovers: number;
   pendingQuotations: number;
+  totalQuotations: number;
+  teamTotalQuotations?: number;
+  quotationPreparedByName?: string | null;
   quotationPrepared: number;
   awaitingClientConfirmation: number;
   readyForClientServicing: number;
@@ -150,6 +153,7 @@ type ClientServicingDashboardData = {
   awaitingDepartmentAssignment: number;
   inProgress: number;
   awaitingClientReview: number;
+  completedProjects: number;
   recentHandovers: ClientServicingHandover[];
 };
 
@@ -367,7 +371,8 @@ export default function ManagerDashboardPage() {
     event.preventDefault();
     if (!quotationClient) return;
     const form = new FormData(event.currentTarget);
-    const amount = Number(String(form.get('quotationAmount') ?? '').replace(/,/g, ''));
+    const rawAmount = String(form.get('quotationAmount') ?? '').replace(/,/g, '').trim();
+    const amount = rawAmount ? Number(rawAmount) : undefined;
     await updateAccountsStage(quotationClient, 'QUOTATION_PREPARED', {
       quotationNumber: String(form.get('quotationNumber') ?? '').trim(),
       quotationAmount: amount,
@@ -380,12 +385,24 @@ export default function ManagerDashboardPage() {
     return <div className="flex min-h-48 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-slate-500" /></div>;
   }
 
+  const visibleSectionCount = [
+    Boolean((isBdmManager || bdmData) && bdmData),
+    Boolean((isAccountsManager || accountsData) && accountsData),
+    Boolean(
+      (isClientServicingManager || clientServicingData) &&
+        clientServicingData,
+    ),
+    Boolean((isHrManager || hrData) && hrData),
+  ].filter(Boolean).length;
+
+  const showSectionLabels = visibleSectionCount > 1;
+
   return (
-    <div className="mx-auto max-w-7xl space-y-8">
+    <div className="mx-auto max-w-7xl space-y-5">
       {error && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{error}</div>}
 
       {(isBdmManager || bdmData) && bdmData && (
-        <BdmSection data={bdmData} />
+        <BdmSection data={bdmData} showLabel={showSectionLabels} />
       )}
 
       {(isAccountsManager || accountsData) && accountsData && (
@@ -394,15 +411,16 @@ export default function ManagerDashboardPage() {
           saving={savingAccounts}
           onCreateQuotation={setQuotationClient}
           onAdvance={(client, stage) => void updateAccountsStage(client, stage)}
+          showLabel={showSectionLabels}
         />
       )}
 
       {(isClientServicingManager || clientServicingData) && clientServicingData && (
-        <ClientServicingSection data={clientServicingData} />
+        <ClientServicingSection data={clientServicingData} showLabel={showSectionLabels} />
       )}
 
       {(isHrManager || hrData) && hrData && (
-        <HrSection data={hrData} />
+        <HrSection data={hrData} showLabel={showSectionLabels} />
       )}
 
       {quotationClient && (
@@ -417,16 +435,22 @@ export default function ManagerDashboardPage() {
   );
 }
 
-function BdmSection({ data }: { data: BdmDashboardData }) {
+function BdmSection({
+  data,
+  showLabel,
+}: {
+  data: BdmDashboardData;
+  showLabel: boolean;
+}) {
   const attentionClients = data.recentClients.filter((client) => client.onboardingStage !== 'APPROVED').slice(0, 6);
   return (
-    <section className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-sm font-bold uppercase tracking-[0.18em] text-violet-600">Business Development</p>
-          <h1 className="mt-1 text-3xl font-black tracking-tight text-slate-950">BDM Dashboard</h1>
-          <p className="mt-2 text-sm text-slate-500">Client pipeline from onboarding to Accounts handover.</p>
-        </div>
+    <section className="space-y-4">
+      <div className={`flex items-center gap-3 ${showLabel ? 'justify-between' : 'justify-end'}`}>
+        {showLabel && (
+          <p className="text-xs font-black uppercase tracking-[0.16em] text-violet-600">
+            Business Development
+          </p>
+        )}
         <Link href="/clients?new=1" className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-slate-800"><Plus className="h-4 w-4" />Add Client</Link>
       </div>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -450,22 +474,25 @@ function AccountsSection({
   saving,
   onCreateQuotation,
   onAdvance,
+  showLabel,
 }: {
   data: AccountsDashboardData;
   saving: boolean;
   onCreateQuotation: (client: AccountsClient) => void;
   onAdvance: (client: AccountsClient, stage: Exclude<ClientAccountsStage, 'NEW_HANDOVER'>) => void;
+  showLabel: boolean;
 }) {
   const openClients = data.recentClients.filter((client) => (client.accountsStage ?? 'NEW_HANDOVER') !== 'HANDED_TO_CLIENT_SERVICING');
   return (
-    <section id="accounts-workflow" className="space-y-6 border-t border-slate-200 pt-8 first:border-t-0 first:pt-0">
-      <div>
-        <p className="text-sm font-bold uppercase tracking-[0.18em] text-blue-600">Accounts & Quotation</p>
-        <h2 className="mt-1 text-3xl font-black tracking-tight text-slate-950">Accounts Workflow</h2>
-      </div>
+    <section id="accounts-workflow" className="space-y-4 border-t border-slate-200 pt-5 first:border-t-0 first:pt-0">
+      {showLabel && (
+        <p className="text-xs font-black uppercase tracking-[0.16em] text-blue-600">
+          Accounts & Quotation
+        </p>
+      )}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="Pending Quotations" value={data.pendingQuotations} icon={BadgeIndianRupee} href="#accounts-workflow" />
-        <MetricCard label="Quotation Prepared" value={data.quotationPrepared} icon={FileCheck2} href="#accounts-workflow" />
+        <MetricCard label="Total Quotations" subtitle={data.quotationPreparedByName ?? undefined} value={data.totalQuotations ?? data.quotationPrepared} icon={FileCheck2} href="#accounts-workflow" />
         <MetricCard label="Awaiting Client Confirmation" value={data.awaitingClientConfirmation} icon={Clock3} href="#accounts-workflow" />
         <MetricCard label="Ready for Client Servicing" value={data.readyForClientServicing} icon={CheckCircle2} href="#accounts-workflow" />
       </div>
@@ -478,29 +505,33 @@ function AccountsSection({
 
 function ClientServicingSection({
   data,
+  showLabel,
 }: {
   data: ClientServicingDashboardData;
+  showLabel: boolean;
 }) {
   return (
-    <section id="client-servicing-workflow" className="space-y-6 border-t border-slate-200 pt-8 first:border-t-0 first:pt-0">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-sm font-bold uppercase tracking-[0.18em] text-emerald-600">Client Servicing</p>
-          <h2 className="mt-1 text-3xl font-black tracking-tight text-slate-950">Client Servicing Dashboard</h2>
-        </div>
+    <section id="client-servicing-workflow" className="space-y-4 border-t border-slate-200 pt-5 first:border-t-0 first:pt-0">
+      <div className={`flex items-center gap-3 ${showLabel ? 'justify-between' : 'justify-end'}`}>
+        {showLabel && (
+          <p className="text-xs font-black uppercase tracking-[0.16em] text-emerald-600">
+            Client Servicing
+          </p>
+        )}
         <Link href="/projects?new=1" className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-slate-800">
           <Plus className="h-4 w-4" />
           Create Project
         </Link>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="New Handovers" value={data.newHandovers} icon={Users} href="#client-servicing-handovers" />
         <MetricCard label="Projects to Create" value={data.projectsToCreate} icon={Plus} href="#client-servicing-handovers" />
         <MetricCard label="Active Projects" value={data.activeProjects} icon={CheckCircle2} href="/projects?status=ACTIVE" />
-        <MetricCard label="Awaiting Department Assignment" value={data.awaitingDepartmentAssignment} icon={Clock3} href="/projects?status=PLANNING" />
+        <MetricCard label="To Do" value={data.awaitingDepartmentAssignment} icon={Clock3} href="/projects?status=PLANNING" />
         <MetricCard label="In Progress" value={data.inProgress} icon={FileCheck2} href="/projects?status=ACTIVE" />
         <MetricCard label="Awaiting Client Review" value={data.awaitingClientReview} icon={RotateCcw} href="/projects?status=UNDER_REVIEW" />
+        <MetricCard label="Completed Projects" value={data.completedProjects} icon={CheckCircle2} href="/projects?status=COMPLETED" />
       </div>
 
       <DashboardCard
@@ -553,7 +584,7 @@ function ClientServicingTable({
                   <div>
                     <p className="font-semibold text-slate-800">{client.project.name}</p>
                     <p className="mt-1 text-xs text-slate-500">
-                      {client.project.status === 'ACTIVE' ? 'IN PROGRESS' : client.project.status.replaceAll('_', ' ')}
+                      {client.project.status === 'ACTIVE' ? 'IN PROGRESS' : client.project.status === 'PLANNING' ? 'TO DO' : client.project.status.replaceAll('_', ' ')}
                       {client.project.departments.length
                         ? ` · ${client.project.departments.map((department) => department.name).join(', ')}`
                         : ''}
@@ -586,10 +617,20 @@ function ClientServicingTable({
   );
 }
 
-function HrSection({ data }: { data: HrDashboardData }) {
+function HrSection({
+  data,
+  showLabel,
+}: {
+  data: HrDashboardData;
+  showLabel: boolean;
+}) {
   return (
-    <section className="space-y-6 border-t border-slate-200 pt-8 first:border-t-0 first:pt-0">
-      <div><h2 className="text-3xl font-black tracking-tight text-slate-950">HR Dashboard</h2></div>
+    <section className="space-y-4 border-t border-slate-200 pt-5 first:border-t-0 first:pt-0">
+      {showLabel && (
+        <p className="text-xs font-black uppercase tracking-[0.16em] text-slate-600">
+          Human Resources
+        </p>
+      )}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><MetricCard label="Total Employees" value={data.totalEmployees} icon={Users} href="/manager/employees/new" /></div>
       <DashboardCard title="Employees Added by HR" subtitle="Latest HR-created employee records.">
         {!data.employees.length ? <div className="px-6 py-10 text-center text-sm text-slate-500">No employees added by HR yet.</div> : (
@@ -604,8 +645,8 @@ function DashboardCard({ title, subtitle, children }: { title: string; subtitle?
   return <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white"><div className="border-b border-slate-200 px-6 py-5"><h3 className="text-lg font-black text-slate-950">{title}</h3>{subtitle ? <p className="mt-1 text-xs text-slate-500">{subtitle}</p> : null}</div>{children}</section>;
 }
 
-function MetricCard({ label, value, icon: Icon, href }: { label: string; value: number; icon: typeof Users; href: string }) {
-  return <Link href={href} className="group rounded-2xl border border-slate-200 bg-white p-5 transition hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-sm"><div className="flex items-start justify-between gap-4"><div><p className="text-sm font-semibold text-slate-500">{label}</p><p className="mt-2 text-3xl font-black text-slate-950">{value}</p></div><div className="rounded-xl bg-slate-100 p-3 text-slate-700 transition group-hover:bg-violet-50 group-hover:text-violet-700"><Icon className="h-5 w-5" /></div></div></Link>;
+function MetricCard({ label, value, icon: Icon, href, subtitle }: { label: string; value: number; icon: typeof Users; href: string; subtitle?: string }) {
+  return <Link href={href} className="group rounded-2xl border border-slate-200 bg-white p-5 transition hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-sm"><div className="flex items-start justify-between gap-4"><div><p className="text-sm font-semibold text-slate-500">{label}</p>{subtitle ? <p className="mt-1 text-xs font-bold text-slate-700">{subtitle}</p> : null}<p className={`${subtitle ? 'mt-1.5' : 'mt-2'} text-3xl font-black text-slate-950`}>{value}</p></div><div className="rounded-xl bg-slate-100 p-3 text-slate-700 transition group-hover:bg-violet-50 group-hover:text-violet-700"><Icon className="h-5 w-5" /></div></div></Link>;
 }
 
 function ClientTable({ clients, emptyText }: { clients: BdmClient[]; emptyText: string }) {
@@ -622,5 +663,5 @@ function AccountsTable({ clients, saving, onCreateQuotation, onAdvance }: { clie
 }
 
 function QuotationModal({ client, saving, onClose, onSubmit }: { client: AccountsClient; saving: boolean; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4"><div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl"><div className="flex items-center justify-between border-b border-slate-200 px-6 py-5"><div><h3 className="text-xl font-black text-slate-950">Create / Update Quotation</h3><p className="mt-1 text-xs text-slate-500">{client.companyName ?? client.name}</p></div><button onClick={onClose} type="button" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button></div><form onSubmit={onSubmit} className="grid gap-4 p-6 sm:grid-cols-2"><label className="space-y-1.5"><span className="text-xs font-bold text-slate-600">Quotation Number</span><input name="quotationNumber" required defaultValue={client.quotationNumber ?? ''} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-violet-400" /></label><label className="space-y-1.5"><span className="text-xs font-bold text-slate-600">Quotation Amount (INR)</span><input name="quotationAmount" required min="0.01" step="0.01" type="number" defaultValue={client.quotationAmount ?? ''} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-violet-400" /></label><label className="space-y-1.5 sm:col-span-2"><span className="text-xs font-bold text-slate-600">Quotation / Commercial Details</span><textarea name="quotationDetails" rows={4} defaultValue={client.quotationDetails ?? ''} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-violet-400" /></label><label className="space-y-1.5 sm:col-span-2"><span className="text-xs font-bold text-slate-600">Billing Details</span><textarea name="billingDetails" rows={3} defaultValue={client.billingDetails ?? ''} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-violet-400" /></label><div className="flex justify-end gap-3 sm:col-span-2"><button type="button" onClick={onClose} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-700">Cancel</button><button disabled={saving} className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{saving ? 'Saving…' : 'Save Quotation'}</button></div></form></div></div>;
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4"><div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl"><div className="flex items-center justify-between border-b border-slate-200 px-6 py-5"><div><h3 className="text-xl font-black text-slate-950">Create / Update Quotation</h3><p className="mt-1 text-xs text-slate-500">{client.companyName ?? client.name}</p></div><button onClick={onClose} type="button" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button></div><form onSubmit={onSubmit} className="grid gap-4 p-6 sm:grid-cols-2"><label className="space-y-1.5"><span className="text-xs font-bold text-slate-600">Quotation Number</span><input name="quotationNumber" required defaultValue={client.quotationNumber ?? ''} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-violet-400" /></label><label className="space-y-1.5"><span className="text-xs font-bold text-slate-600">Quotation Amount (INR) <span className="font-medium text-slate-400">Optional</span></span><input name="quotationAmount" min="0" step="0.01" type="number" defaultValue={client.quotationAmount ?? ''} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-violet-400" /></label><label className="space-y-1.5 sm:col-span-2"><span className="text-xs font-bold text-slate-600">Quotation / Commercial Details</span><textarea name="quotationDetails" rows={4} defaultValue={client.quotationDetails ?? ''} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-violet-400" /></label><label className="space-y-1.5 sm:col-span-2"><span className="text-xs font-bold text-slate-600">Billing Details</span><textarea name="billingDetails" rows={3} defaultValue={client.billingDetails ?? ''} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-violet-400" /></label><div className="flex justify-end gap-3 sm:col-span-2"><button type="button" onClick={onClose} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-700">Cancel</button><button disabled={saving} className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{saving ? 'Saving…' : 'Save Quotation'}</button></div></form></div></div>;
 }

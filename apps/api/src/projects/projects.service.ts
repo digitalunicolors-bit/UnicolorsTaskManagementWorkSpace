@@ -168,6 +168,7 @@ export class ProjectsService {
     return {
       userId: access.userId ?? null,
       employeeId: employee?.id ?? null,
+      employeeDepartmentId: employee?.department?.id ?? null,
       canManageAll,
       isClientServicing:
         Boolean(clientServicingDepartment),
@@ -528,13 +529,29 @@ export class ProjectsService {
     }
 
     return {
-      members: {
-        some: {
-          employeeId: resolved.employeeId,
-          isActive: true,
-          leftAt: null,
+      OR: [
+        {
+          members: {
+            some: {
+              employeeId: resolved.employeeId,
+              isActive: true,
+              leftAt: null,
+            },
+          },
         },
-      },
+        ...(resolved.employeeDepartmentId
+          ? [
+              { departmentId: resolved.employeeDepartmentId },
+              {
+                projectDepartments: {
+                  some: {
+                    departmentId: resolved.employeeDepartmentId,
+                  },
+                },
+              },
+            ]
+          : []),
+      ],
     };
   }
 
@@ -1079,12 +1096,13 @@ export class ProjectsService {
                 startDate,
                 deadline,
 
+                // Project priority is system-managed and always HIGH.
                 priority:
-                  (dto.priority as Priority) ??
-                  Priority.MEDIUM,
+                  Priority.HIGH,
 
+                // PLANNING is retained as the internal compatibility code.
+                // The workspace presents this initial state as TO DO.
                 status:
-                  (dto.status as ProjectStatus) ??
                   ProjectStatus.PLANNING,
 
                 voiceTranscript:
@@ -1185,7 +1203,7 @@ export class ProjectsService {
                   title:
                     'New project assigned to your department',
                   message:
-                    `${created.name} for ${client.companyName ?? client.name} has been assigned to ${departmentNames.join(', ')}. Please review the brief and start department planning.`,
+                    `${created.name} for ${client.companyName ?? client.name} has been assigned to ${departmentNames.join(', ')}. Please review the brief and start department work.`,
                   entityType:
                     'PROJECT',
                   entityId:
@@ -1210,6 +1228,15 @@ export class ProjectsService {
     id: string,
     dto: UpdateProjectDto,
   ) {
+    if (
+      dto.status ===
+      ProjectStatus.COMPLETED
+    ) {
+      throw new BadRequestException(
+        'Project completion is not used in the active workflow. Complete tasks and move the project through review instead.',
+      );
+    }
+
     const current =
       await this.findOne(id);
 
@@ -1349,11 +1376,9 @@ export class ProjectsService {
               deadline,
             }),
 
-            ...(dto.priority !==
-              undefined && {
-              priority:
-                dto.priority as Priority,
-            }),
+            // Project priority remains system-managed on every update.
+            priority:
+              Priority.HIGH,
 
             ...(dto.status !==
               undefined && {
@@ -1423,7 +1448,11 @@ export class ProjectsService {
     const project =
       await this.getReviewProject(projectId);
 
-    if (project.status !== ProjectStatus.UNDER_REVIEW) {
+    const reviewReadyStatus =
+      project.status === ProjectStatus.UNDER_REVIEW ||
+      (!project.deadline && project.status === ProjectStatus.ACTIVE);
+
+    if (!reviewReadyStatus) {
       throw new BadRequestException(
         'Project must be ready for review before it can be sent to the client.',
       );
@@ -1461,7 +1490,7 @@ export class ProjectsService {
       await this.getReviewProject(projectId);
 
     if (
-      project.status !== ProjectStatus.UNDER_REVIEW ||
+      !(project.status === ProjectStatus.UNDER_REVIEW || project.status === ProjectStatus.ACTIVE) ||
       project.reviewStage !== ProjectReviewStage.CLIENT_REVIEW
     ) {
       throw new BadRequestException(
@@ -1474,9 +1503,12 @@ export class ProjectsService {
     await this.prisma.project.update({
       where: { id: projectId },
       data: {
-        status: ProjectStatus.COMPLETED,
-        reviewStage: ProjectReviewStage.COMPLETED,
+        // Client approval closes the current review cycle, not the project.
+        // The project remains active for its continuing/future department work.
+        status: ProjectStatus.ACTIVE,
+        reviewStage: null,
         clientApprovedAt: now,
+        clientFeedbackDepartmentIds: [],
       },
     });
 
@@ -1513,8 +1545,8 @@ export class ProjectsService {
       {
         actorId: workflowAccess.userId,
         kind: NotificationKind.USER_MENTIONED,
-        title: 'Project completed',
-        message: `${project.name} has been approved by the client and completed.`,
+        title: 'Client approved project work',
+        message: `${project.name} has been approved by the client. The project remains active for the next work cycle.`,
         entityType: 'PROJECT',
         entityId: projectId,
         redirectPath: '/projects',
@@ -1536,7 +1568,7 @@ export class ProjectsService {
       await this.getReviewProject(projectId);
 
     if (
-      project.status !== ProjectStatus.UNDER_REVIEW ||
+      !(project.status === ProjectStatus.UNDER_REVIEW || project.status === ProjectStatus.ACTIVE) ||
       project.reviewStage !== ProjectReviewStage.CLIENT_REVIEW
     ) {
       throw new BadRequestException(

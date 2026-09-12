@@ -68,6 +68,7 @@ export class KanbanService {
         select: {
           status: true,
           reviewStage: true,
+          deadline: true,
           name: true,
           projectManagerId: true,
         },
@@ -127,7 +128,9 @@ export class KanbanService {
       ) &&
       project.reviewStage !== ProjectReviewStage.CLIENT_REVIEW
     ) {
-      nextStatus = ProjectStatus.UNDER_REVIEW;
+      nextStatus = project.deadline
+        ? ProjectStatus.UNDER_REVIEW
+        : ProjectStatus.ACTIVE;
       nextReviewStage = ProjectReviewStage.CLIENT_SERVICING_REVIEW;
     } else if (
       codes.some((code) =>
@@ -398,6 +401,16 @@ export class KanbanService {
             },
           },
           {
+            subtasks: {
+              some: {
+                assignedEmployeeId: {
+                  in: teamEmployeeIds,
+                },
+                deletedAt: null,
+              },
+            },
+          },
+          {
             reviewers: {
               some: {
                 employeeId:
@@ -427,6 +440,16 @@ export class KanbanService {
               employeeId:
                 userContext.employeeId,
               removedAt:
+                null,
+            },
+          },
+        },
+        {
+          subtasks: {
+            some: {
+              assignedEmployeeId:
+                userContext.employeeId,
+              deletedAt:
                 null,
             },
           },
@@ -886,6 +909,37 @@ export class KanbanService {
               },
             },
           },
+          collaborators: {
+            where: {
+              removedAt: null,
+            },
+            select: {
+              employee: {
+                select: {
+                  id: true,
+                  fullName: true,
+                  username: true,
+                  profileImageUrl: true,
+                },
+              },
+            },
+          },
+          subtasks: {
+            where: {
+              deletedAt: null,
+              assignedEmployeeId: { not: null },
+            },
+            select: {
+              assignedEmployee: {
+                select: {
+                  id: true,
+                  fullName: true,
+                  username: true,
+                  profileImageUrl: true,
+                },
+              },
+            },
+          },
         },
         take: 5000,
       });
@@ -944,7 +998,51 @@ export class KanbanService {
           assignment.employee,
         );
       }
+
+      for (const collaboration of task.collaborators) {
+        employees.set(
+          collaboration.employee.id,
+          collaboration.employee,
+        );
+      }
+
+      for (const subtask of task.subtasks) {
+        if (subtask.assignedEmployee) {
+          employees.set(
+            subtask.assignedEmployee.id,
+            subtask.assignedEmployee,
+          );
+        }
+      }
     }
+
+    const filterEmployees =
+      ctx.roles.includes('SUPER_ADMIN')
+        ? await this.prisma.employeeProfile.findMany({
+            where: {
+              deletedAt: null,
+              employmentStatus: 'ACTIVE',
+              user: {
+                isActive: true,
+                deletedAt: null,
+              },
+            },
+            select: {
+              id: true,
+              fullName: true,
+              username: true,
+              profileImageUrl: true,
+            },
+            orderBy: {
+              fullName: 'asc',
+            },
+          })
+        : [...employees.values()].sort(
+            (a, b) =>
+              a.fullName.localeCompare(
+                b.fullName,
+              ),
+          );
 
     return {
       clients:
@@ -967,16 +1065,7 @@ export class KanbanService {
               b.name,
             ),
         ),
-      employees:
-        [...employees.values()].sort(
-          (
-            a,
-            b,
-          ) =>
-            a.fullName.localeCompare(
-              b.fullName,
-            ),
-        ),
+      employees: filterEmployees,
       priorities: [
         'LOW',
         'MEDIUM',
@@ -1074,14 +1163,37 @@ export class KanbanService {
     if (
       query.assigneeId
     ) {
-      base.assignees = {
-        some: {
-          employeeId:
-            query.assigneeId,
-          removedAt:
-            null,
+      base.AND = [
+        ...(base.AND ?? []),
+        {
+          OR: [
+            {
+              assignees: {
+                some: {
+                  employeeId: query.assigneeId,
+                  removedAt: null,
+                },
+              },
+            },
+            {
+              collaborators: {
+                some: {
+                  employeeId: query.assigneeId,
+                  removedAt: null,
+                },
+              },
+            },
+            {
+              subtasks: {
+                some: {
+                  assignedEmployeeId: query.assigneeId,
+                  deletedAt: null,
+                },
+              },
+            },
+          ],
         },
-      };
+      ];
     }
 
     const where =
@@ -1178,6 +1290,10 @@ export class KanbanService {
           ctx.roles.includes(
             'SUPER_ADMIN',
           ),
+        canReopen:
+          ctx.roles.includes('SUPER_ADMIN') ||
+          ctx.roles.includes('ADMIN') ||
+          ctx.roles.includes('MANAGER'),
       },
     };
   }
@@ -1234,6 +1350,7 @@ export class KanbanService {
         where,
         select: {
           id: true,
+          title: true,
           projectId: true,
           isDraft: true,
           createdById: true,
@@ -2003,12 +2120,53 @@ export class KanbanService {
       task.projectId,
     );
 
+    const pendingReviewerApprovals =
+      await this.prisma.taskApproval.findMany({
+        where: {
+          taskId: task.id,
+          status: ApprovalStatus.PENDING,
+          reviewerId: { not: null },
+        },
+        select: { reviewerId: true },
+      });
+
+    const pendingReviewerIds = [
+      ...new Set(
+        pendingReviewerApprovals
+          .map((item) => item.reviewerId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+
+    if (pendingReviewerIds.length) {
+      const approvingReviewer =
+        await this.prisma.employeeProfile.findUnique({
+          where: { id: reviewerId },
+          select: { fullName: true },
+        });
+
+      await this.notifications.notifyEmployees(
+        pendingReviewerIds,
+        {
+          actorId: userId,
+          kind: NotificationKind.TASK_APPROVED,
+          title: 'Reviewer approved · your review is pending',
+          message: `${approvingReviewer?.fullName ?? 'A reviewer'} approved this task. Your review is still pending.`,
+          entityType: 'TASK',
+          entityId: task.id,
+          redirectPath: `/tasks?taskId=${task.id}`,
+        },
+      );
+    }
+
     await this.notifications.notifyTaskAssignees(
       task.id,
       userId,
       NotificationKind.TASK_APPROVED,
       'Task approved',
-      'Your task has been approved.',
+      allApproved
+        ? 'Your task has been approved by all required reviewers.'
+        : 'A reviewer approved the task. Waiting for remaining reviewers.',
     );
 
     if (
@@ -2036,6 +2194,115 @@ export class KanbanService {
         allApproved
           ? 'Task approved and completed.'
           : 'Your approval is recorded. Waiting for remaining reviewers.',
+    };
+  }
+
+  async reopen(
+    userId: string,
+    taskId: string,
+  ) {
+    const ctx = await this.context(userId);
+
+    const canReopen =
+      ctx.roles.includes('SUPER_ADMIN') ||
+      ctx.roles.includes('ADMIN') ||
+      ctx.roles.includes('MANAGER');
+
+    if (!canReopen) {
+      throw new ForbiddenException(
+        'Only Super Admin, Admin or HOD can reopen a completed task.',
+      );
+    }
+
+    const task = await this.visibleWorkflowTask(
+      taskId,
+      userId,
+      ctx,
+    );
+
+    if (this.columnCode(task.status.code) !== 'DONE') {
+      throw new BadRequestException(
+        'Only a completed task can be reopened.',
+      );
+    }
+
+    const inProgressStatus = await this.workflowStatus('IN_PROGRESS');
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.task.update({
+        where: { id: task.id },
+        data: { statusId: inProgressStatus.id },
+      });
+
+      await tx.taskStatusHistory.create({
+        data: {
+          taskId: task.id,
+          fromStatusId: task.statusId,
+          toStatusId: inProgressStatus.id,
+          changedById: userId,
+          reason: 'Completed task reopened',
+        },
+      });
+
+      await tx.activityLog.create({
+        data: {
+          userId,
+          action: 'TASK_REOPENED',
+          entityType: 'TASK',
+          entityId: task.id,
+          previousValue: { status: task.status.code },
+          newValue: { status: inProgressStatus.code },
+          metadata: { source: 'KANBAN_REOPEN' },
+        },
+      });
+    });
+
+    // Reopening a completed task also reactivates a project that had already
+    // been completed. Keep cancelled/archived projects untouched.
+    await this.prisma.project.updateMany({
+      where: {
+        id: task.projectId,
+        deletedAt: null,
+        status: ProjectStatus.COMPLETED,
+      },
+      data: {
+        status: ProjectStatus.ACTIVE,
+        reviewStage: null,
+        clientReviewSentAt: null,
+        clientApprovedAt: null,
+      },
+    });
+
+    await this.syncProjectStatusFromTasks(task.projectId);
+
+    const notifyEmployeeIds = Array.from(
+      new Set([
+        ...task.assignees.map((item) => item.employeeId),
+        ...task.collaborators.map((item) => item.employeeId),
+        ...task.reviewers.map((item) => item.employeeId),
+      ]),
+    );
+
+    if (notifyEmployeeIds.length) {
+      await this.notifications.notifyEmployees(
+        notifyEmployeeIds,
+        {
+          actorId: userId,
+          kind: NotificationKind.USER_MENTIONED,
+          title: 'Task reopened',
+          message: `Task "${task.title}" has been reopened and moved to In Progress.`,
+          entityType: 'TASK',
+          entityId: task.id,
+          redirectPath: `/tasks?task=${task.id}`,
+        },
+      );
+    }
+
+    return {
+      taskId: task.id,
+      status: inProgressStatus,
+      completed: false,
+      message: 'Task reopened and moved to In Progress.',
     };
   }
 

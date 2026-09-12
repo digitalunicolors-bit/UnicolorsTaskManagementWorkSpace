@@ -27,6 +27,7 @@ import { UpdateClientAccountsDto } from './dto/update-client-accounts.dto';
 import { UpdateClientContactDto } from './dto/update-client-contact.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
 import { UpdateClientOnboardingDto } from './dto/update-client-onboarding.dto';
+import { ManageClientApprovalDto } from './dto/manage-client-approval.dto';
 
 type AuthenticatedRequest = {
   user?: {
@@ -145,6 +146,23 @@ export class ClientsController {
     );
   }
 
+  @Patch(':id/manage-approval')
+  @Permissions('clients.view')
+  manageApproval(
+    @Param('id') id: string,
+    @Body() dto: ManageClientApprovalDto,
+    @Req() request?: AuthenticatedRequest,
+  ) {
+    return this.clientsService.manageClientApproval(
+      id,
+      dto,
+      {
+        userId: request?.user?.id,
+        roles: request?.user?.roles,
+      },
+    );
+  }
+
   @Patch(':id/accounts')
   @Permissions('clients.view')
   updateAccounts(
@@ -155,6 +173,21 @@ export class ClientsController {
     return this.clientsService.updateAccounts(
       id,
       dto,
+      {
+        userId: request?.user?.id,
+        roles: request?.user?.roles,
+      },
+    );
+  }
+
+  @Post(':id/close')
+  @Permissions('clients.view')
+  closeClient(
+    @Param('id') id: string,
+    @Req() request?: AuthenticatedRequest,
+  ) {
+    return this.clientsService.closeClient(
+      id,
       {
         userId: request?.user?.id,
         roles: request?.user?.roles,

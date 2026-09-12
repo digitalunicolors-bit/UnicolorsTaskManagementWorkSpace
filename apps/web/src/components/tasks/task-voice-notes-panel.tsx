@@ -2,7 +2,6 @@
 
 import {
   ChangeEvent,
-  FormEvent,
   useCallback,
   useEffect,
   useRef,
@@ -15,14 +14,13 @@ import {
   Play,
   RefreshCw,
   Save,
-  Sparkles,
   Square,
   Trash2,
   Upload,
-  X,
 } from 'lucide-react';
 
 import { useAuth } from '@/components/auth/auth-provider';
+import { appDialog } from '@/components/ui/app-dialog-provider';
 
 interface PersonProfile {
   username?: string | null;
@@ -302,21 +300,6 @@ export function TaskVoiceNotesPanel({
     setRecordingSeconds,
   ] = useState(0);
 
-  const [
-    pendingFile,
-    setPendingFile,
-  ] =
-    useState<File | null>(
-      null,
-    );
-
-  const [
-    pendingDuration,
-    setPendingDuration,
-  ] =
-    useState<
-      number | null
-    >(null);
 
   const [
     audioUrls,
@@ -565,6 +548,82 @@ export function TaskVoiceNotesPanel({
       }
     }, []);
 
+  const saveVoiceFile =
+    useCallback(
+      async (
+        file: File,
+        duration: number | null,
+      ) => {
+        setBusy(true);
+        setError('');
+
+        try {
+          const form =
+            new FormData();
+
+          form.append(
+            'file',
+            file,
+          );
+
+          if (
+            duration !== null
+          ) {
+            form.append(
+              'durationSeconds',
+              String(duration),
+            );
+          }
+
+          const response =
+            await authFetch(
+              `/voice-notes/task/${taskId}`,
+              {
+                method: 'POST',
+                body: form,
+              },
+            );
+
+          let data:
+            | unknown
+            | null = null;
+
+          try {
+            data =
+              await response.json();
+          } catch {
+            data = null;
+          }
+
+          if (!response.ok) {
+            throw new Error(
+              getErrorMessage(
+                data,
+                'Unable to upload voice note.',
+              ),
+            );
+          }
+
+          await loadNotes();
+          onChanged?.();
+        } catch (err) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : 'Unable to upload voice note.',
+          );
+        } finally {
+          setBusy(false);
+        }
+      },
+      [
+        authFetch,
+        loadNotes,
+        onChanged,
+        taskId,
+      ],
+    );
+
   const startRecording =
     async () => {
       if (!canUpload) {
@@ -685,15 +744,12 @@ export function TaskVoiceNotesPanel({
                 },
               );
 
-            setPendingFile(
-              file,
-            );
+            setRecording(false);
 
-            setPendingDuration(
+            void saveVoiceFile(
+              file,
               duration,
             );
-
-            setRecording(false);
 
             streamRef.current
               ?.getTracks()
@@ -718,10 +774,6 @@ export function TaskVoiceNotesPanel({
             setRecording(false);
           };
 
-        setPendingFile(null);
-        setPendingDuration(
-          null,
-        );
         setRecordingSeconds(
           0,
         );
@@ -783,108 +835,16 @@ export function TaskVoiceNotesPanel({
           .files?.[0] ||
         null;
 
-      setPendingFile(file);
-      setPendingDuration(
-        null,
-      );
-    };
+      event.target.value = '';
 
-  const uploadVoiceNote =
-    async (
-      event: FormEvent<HTMLFormElement>,
-    ) => {
-      event.preventDefault();
-
-      if (!pendingFile) {
-        setError(
-          'Record or choose an audio file first.',
-        );
+      if (!file) {
         return;
       }
 
-      setBusy(true);
-      setError('');
-
-      try {
-        const form =
-          new FormData();
-
-        form.append(
-          'file',
-          pendingFile,
-        );
-
-        if (
-          pendingDuration !==
-          null
-        ) {
-          form.append(
-            'durationSeconds',
-            String(
-              pendingDuration,
-            ),
-          );
-        }
-
-        const response =
-          await authFetch(
-            `/voice-notes/task/${taskId}`,
-            {
-              method: 'POST',
-              body: form,
-            },
-          );
-
-        let data:
-          | unknown
-          | null = null;
-
-        try {
-          data =
-            await response.json();
-        } catch {
-          data = null;
-        }
-
-        if (!response.ok) {
-          throw new Error(
-            getErrorMessage(
-              data,
-              'Unable to upload voice note.',
-            ),
-          );
-        }
-
-        setPendingFile(
-          null,
-        );
-        setPendingDuration(
-          null,
-        );
-        setRecordingSeconds(
-          0,
-        );
-
-        const input =
-          document.getElementById(
-            `voice-file-${taskId}`,
-          ) as HTMLInputElement | null;
-
-        if (input) {
-          input.value = '';
-        }
-
-        await loadNotes();
-        onChanged?.();
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : 'Unable to upload voice note.',
-        );
-      } finally {
-        setBusy(false);
-      }
+      void saveVoiceFile(
+        file,
+        null,
+      );
     };
 
   const loadAudio =
@@ -1036,11 +996,15 @@ export function TaskVoiceNotesPanel({
     async (
       note: VoiceNote,
     ) => {
-      if (
-        !window.confirm(
-          'Delete this voice note?',
-        )
-      ) {
+      const confirmed =
+        await appDialog.confirm({
+          title: 'Delete voice note',
+          message: 'Delete this voice note?',
+          confirmLabel: 'Delete',
+          tone: 'danger',
+        });
+
+      if (!confirmed) {
         return;
       }
 
@@ -1095,7 +1059,7 @@ export function TaskVoiceNotesPanel({
 
   if (loading) {
     return (
-      <section className="rounded-2xl border border-slate-200 bg-white p-5">
+      <section className="rounded-xl border border-slate-200 bg-white p-3">
         <div className="flex items-center gap-2 text-sm text-slate-500">
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading voice notes...
@@ -1105,156 +1069,89 @@ export function TaskVoiceNotesPanel({
   }
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2">
-            <Mic className="h-5 w-5 text-rose-600" />
+    <section className="rounded-xl border border-slate-200 bg-white p-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <Mic className="h-4 w-4 text-rose-600" />
 
-            <h4 className="font-bold text-slate-900">
-              Voice Notes
-            </h4>
+          <h4 className="font-bold text-slate-900">
+            Voice Notes
+          </h4>
 
-            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-500">
-              {notes.length}
-            </span>
-          </div>
-
-          <p className="mt-1 text-sm text-slate-500">
-            Record task instructions, feedback or work updates. Local Whisper creates the transcript automatically.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-bold text-emerald-700">
-          <Sparkles className="h-3.5 w-3.5" />
-          Local AI · No paid API
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">
+            {notes.length}
+          </span>
         </div>
       </div>
 
       {error && (
-        <div className="mt-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">
+        <div className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
           {error}
         </div>
       )}
 
       {canUpload && (
-        <form
-          onSubmit={
-            uploadVoiceNote
-          }
-          className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4"
-        >
-          <div className="flex flex-wrap gap-2">
-            {!recording ? (
-              <button
-                type="button"
-                onClick={() =>
-                  void startRecording()
-                }
-                disabled={busy}
-                className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50"
-              >
-                <Mic className="h-4 w-4" />
-                Record Voice Note
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={
-                  finishRecording
-                }
-                className="inline-flex items-center gap-2 rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-bold text-white"
-              >
-                <Square className="h-4 w-4" />
-                Stop {formatDuration(
-                  recordingSeconds,
-                )}
-              </button>
-            )}
-
-            <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700">
-              <Upload className="h-4 w-4" />
-              Upload Audio
-
-              <input
-                id={`voice-file-${taskId}`}
-                type="file"
-                accept="audio/*,.webm,.ogg,.mp3,.wav,.m4a,.mp4,.aac"
-                onChange={
-                  chooseAudioFile
-                }
-                className="hidden"
-              />
-            </label>
-          </div>
-
-          {pendingFile && (
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3">
-              <div className="min-w-0">
-                <p className="truncate text-sm font-bold text-slate-900">
-                  {pendingFile.name}
-                </p>
-
-                <p className="mt-1 text-xs text-slate-400">
-                  {formatBytes(
-                    pendingFile.size,
-                  )}
-
-                  {pendingDuration !==
-                  null
-                    ? ` · ${formatDuration(
-                        pendingDuration,
-                      )}`
-                    : ''}
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setPendingFile(
-                    null,
-                  );
-
-                  setPendingDuration(
-                    null,
-                  );
-                }}
-                className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
-                title="Remove selected recording"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-          )}
-
-          <p className="mt-3 text-xs text-slate-400">
-            Maximum 10 minutes / 20 MB. After saving, transcription runs locally on this machine.
-          </p>
-
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           <button
-            type="submit"
-            disabled={
-              busy ||
-              recording ||
-              !pendingFile
+            type="button"
+            onClick={
+              recording
+                ? finishRecording
+                : () =>
+                    void startRecording()
             }
-            className="mt-3 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50"
+            disabled={busy}
+            className={`inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-bold transition disabled:opacity-50 ${
+              recording
+                ? 'bg-red-600 text-white'
+                : 'bg-slate-900 text-white'
+            }`}
           >
-            {busy ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+            {recording ? (
+              <Square className="h-3.5 w-3.5" />
             ) : (
-              <Upload className="h-4 w-4" />
+              <Mic className="h-3.5 w-3.5" />
             )}
-
-            Save Voice Note
+            {recording
+              ? `Stop ${formatDuration(
+                  recordingSeconds,
+                )}`
+              : 'Record Voice'}
           </button>
-        </form>
+
+          <label
+            className={`inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-700 ${
+              busy
+                ? 'cursor-not-allowed opacity-50'
+                : 'cursor-pointer'
+            }`}
+          >
+            <Upload className="h-3.5 w-3.5" />
+            Upload Audio
+            <input
+              id={`voice-file-${taskId}`}
+              type="file"
+              accept="audio/*,.webm,.ogg,.mp3,.wav,.m4a,.mp4,.aac"
+              onChange={
+                chooseAudioFile
+              }
+              disabled={busy}
+              className="hidden"
+            />
+          </label>
+
+          {busy && !recording && (
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Saving…
+            </span>
+          )}
+        </div>
       )}
 
-      <div className="mt-5 space-y-3">
+      <div className="mt-2 space-y-2">
         {!notes.length ? (
-          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-400">
+          <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-3 py-2.5 text-center text-xs text-slate-400">
             No voice notes yet.
           </div>
         ) : (
@@ -1278,12 +1175,12 @@ export function TaskVoiceNotesPanel({
               return (
                 <article
                   key={note.id}
-                  className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4"
+                  className="rounded-xl border border-slate-200 bg-slate-50/60 p-3"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="flex min-w-0 gap-3">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-50">
-                        <FileAudio className="h-5 w-5 text-rose-600" />
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-rose-50">
+                        <FileAudio className="h-4 w-4 text-rose-600" />
                       </div>
 
                       <div className="min-w-0">
@@ -1332,7 +1229,7 @@ export function TaskVoiceNotesPanel({
                     )}
                   </div>
 
-                  <div className="mt-4">
+                  <div className="mt-2">
                     {audioUrls[
                       note.id
                     ] ? (
@@ -1344,7 +1241,7 @@ export function TaskVoiceNotesPanel({
                         }
                         controls
                         preload="metadata"
-                        className="w-full"
+                        className="h-8 w-full"
                       />
                     ) : canDownload ? (
                       <button
@@ -1358,7 +1255,7 @@ export function TaskVoiceNotesPanel({
                           loadingAudioId ===
                           note.id
                         }
-                        className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 disabled:opacity-50"
+                        className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-50"
                       >
                         {loadingAudioId ===
                         note.id ? (
@@ -1372,7 +1269,7 @@ export function TaskVoiceNotesPanel({
                     ) : null}
                   </div>
 
-                  <div className="mt-4 rounded-xl bg-white p-3">
+                  <div className="mt-2 rounded-lg bg-white p-2.5">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
                         <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
@@ -1458,10 +1355,10 @@ export function TaskVoiceNotesPanel({
                               }),
                             )
                           }
-                          rows={4}
+                          rows={1}
                           maxLength={20000}
                           placeholder="Automatic transcript will appear here. You can correct it manually."
-                          className="mt-3 w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-violet-400"
+                          className="mt-2 max-h-28 min-h-9 w-full resize-none overflow-y-auto rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm outline-none focus:border-violet-400"
                         />
 
                         <div className="mt-2 flex flex-wrap gap-2">

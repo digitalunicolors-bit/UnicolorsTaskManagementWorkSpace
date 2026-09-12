@@ -114,7 +114,7 @@ export class TasksController {
   }
 
   @Post(':id/request-changes')
-  @Permissions('tasks.review')
+  @Permissions('tasks.view')
   requestChanges(
     @Param('id') id: string,
     @Body() dto: TaskWorkflowActionDto,
@@ -142,7 +142,7 @@ export class TasksController {
   }
 
   @Post(':id/approve')
-  @Permissions('tasks.approve')
+  @Permissions('tasks.view')
   approveTask(
     @Param('id') id: string,
     @Body() dto: TaskWorkflowActionDto,

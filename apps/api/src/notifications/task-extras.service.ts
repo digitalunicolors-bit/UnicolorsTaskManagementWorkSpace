@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationKind } from '../generated/prisma/enums';
+import { NotificationsService } from './notifications.service';
 import {
   CompleteWorkItemDto,
   CreateChecklistItemDto,
@@ -15,12 +17,14 @@ import {
   SetupTaskStructureDto,
   UpdateChecklistItemDto,
   UpdateSubtaskDto,
+  UpdateSubtaskWorkflowDto,
 } from './dto/task-extras.dto';
 
 @Injectable()
 export class TaskExtrasService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   private clean(value?: string | null) {
@@ -118,6 +122,14 @@ export class TaskExtrasService {
             },
           },
           {
+            subtasks: {
+              some: {
+                assignedEmployeeId: { in: teamIds },
+                deletedAt: null,
+              },
+            },
+          },
+          {
             reviewers: {
               some: { employeeId: employee.id },
             },
@@ -141,6 +153,14 @@ export class TaskExtrasService {
             some: {
               employeeId: employee.id,
               removedAt: null,
+            },
+          },
+        },
+        {
+          subtasks: {
+            some: {
+              assignedEmployeeId: employee.id,
+              deletedAt: null,
             },
           },
         },
@@ -213,6 +233,51 @@ export class TaskExtrasService {
     }
 
     return employee;
+  }
+
+
+  private async notifySubtaskAssignment(
+    taskId: string,
+    assignedEmployeeId: string | null | undefined,
+    actorId: string,
+    subtaskTitle: string,
+  ) {
+    if (!assignedEmployeeId) {
+      return;
+    }
+
+    const task = await this.prisma.task.findFirst({
+      where: {
+        id: taskId,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        title: true,
+        project: {
+          select: {
+            name: true,
+          },
+        },
+      },
+    });
+
+    if (!task) {
+      return;
+    }
+
+    await this.notifications.notifyEmployees(
+      [assignedEmployeeId],
+      {
+        actorId,
+        kind: NotificationKind.TASK_ASSIGNED,
+        title: 'Subtask assigned',
+        message: `You were added to subtask "${subtaskTitle}" in task "${task.title}"${task.project?.name ? ` · ${task.project.name}` : ''}.`,
+        entityType: 'TASK',
+        entityId: taskId,
+        redirectPath: `/tasks?task=${taskId}`,
+      },
+    );
   }
 
   private normalizeTagNames(values: string[]) {
@@ -398,6 +463,15 @@ export class TaskExtrasService {
       }
     });
 
+    for (const item of subtasks) {
+      await this.notifySubtaskAssignment(
+        taskId,
+        item.assignedEmployeeId,
+        userId,
+        item.title,
+      );
+    }
+
     return this.structure(taskId, userId);
   }
 
@@ -460,7 +534,7 @@ export class TaskExtrasService {
     await this.assertTaskVisible(taskId, userId);
     await this.validateEmployee(dto.assignedEmployeeId);
 
-    return this.prisma.subtask.create({
+    const subtask = await this.prisma.subtask.create({
       data: {
         taskId,
         title: dto.title.trim(),
@@ -469,6 +543,15 @@ export class TaskExtrasService {
         sortOrder: dto.sortOrder ?? 0,
       },
     });
+
+    await this.notifySubtaskAssignment(
+      taskId,
+      subtask.assignedEmployeeId,
+      userId,
+      subtask.title,
+    );
+
+    return subtask;
   }
 
   async updateSubtask(
@@ -480,7 +563,12 @@ export class TaskExtrasService {
 
     const item = await this.prisma.subtask.findFirst({
       where: { id, deletedAt: null },
-      select: { id: true, taskId: true },
+      select: {
+        id: true,
+        taskId: true,
+        title: true,
+        assignedEmployeeId: true,
+      },
     });
     if (!item) throw new NotFoundException('Subtask not found.');
 
@@ -489,7 +577,7 @@ export class TaskExtrasService {
       await this.validateEmployee(dto.assignedEmployeeId);
     }
 
-    return this.prisma.subtask.update({
+    const subtask = await this.prisma.subtask.update({
       where: { id },
       data: {
         ...(dto.title !== undefined
@@ -506,6 +594,297 @@ export class TaskExtrasService {
           : {}),
       },
     });
+
+    if (
+      dto.assignedEmployeeId !== undefined &&
+      subtask.assignedEmployeeId &&
+      subtask.assignedEmployeeId !== item.assignedEmployeeId
+    ) {
+      await this.notifySubtaskAssignment(
+        item.taskId,
+        subtask.assignedEmployeeId,
+        userId,
+        subtask.title,
+      );
+    }
+
+    return subtask;
+  }
+
+  async subtaskWorkflow(
+    taskId: string,
+    userId: string,
+  ) {
+    await this.assertTaskVisible(taskId, userId);
+
+    const [items, roles, employee] = await Promise.all([
+      this.prisma.subtask.findMany({
+        where: {
+          taskId,
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          assignedEmployeeId: true,
+          isCompleted: true,
+        },
+        orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+      }),
+      this.roles(userId),
+      this.employee(userId),
+    ]);
+
+    const ids = items.map((item) => item.id);
+    const logs = ids.length
+      ? await this.prisma.activityLog.findMany({
+          where: {
+            entityType: 'SUBTASK',
+            entityId: { in: ids },
+            action: {
+              in: [
+                'SUBTASK_STARTED',
+                'SUBTASK_PAUSED',
+                'SUBTASK_COMPLETED',
+              ],
+            },
+          },
+          select: {
+            entityId: true,
+            action: true,
+            createdAt: true,
+          },
+          orderBy: { createdAt: 'desc' },
+        })
+      : [];
+
+    const latest = new Map<string, string>();
+    for (const log of logs) {
+      if (log.entityId && !latest.has(log.entityId)) {
+        latest.set(log.entityId, log.action);
+      }
+    }
+
+    const managerial =
+      roles.includes('SUPER_ADMIN') ||
+      roles.includes('ADMIN') ||
+      roles.includes('MANAGER');
+
+    return {
+      items: items.map((item) => {
+        const action = latest.get(item.id);
+        const status = item.isCompleted
+          ? 'COMPLETED'
+          : action === 'SUBTASK_STARTED'
+            ? 'STARTED'
+            : action === 'SUBTASK_PAUSED'
+              ? 'PAUSED'
+              : 'PENDING';
+
+        return {
+          id: item.id,
+          status,
+          canControl:
+            managerial ||
+            Boolean(
+              employee?.id &&
+              item.assignedEmployeeId === employee.id,
+            ),
+        };
+      }),
+    };
+  }
+
+  async updateSubtaskWorkflow(
+    id: string,
+    userId: string,
+    dto: UpdateSubtaskWorkflowDto,
+  ) {
+    const item = await this.prisma.subtask.findFirst({
+      where: { id, deletedAt: null },
+      select: {
+        id: true,
+        title: true,
+        taskId: true,
+        assignedEmployeeId: true,
+        isCompleted: true,
+        task: {
+          select: {
+            title: true,
+            createdById: true,
+            department: {
+              select: {
+                head: {
+                  select: { userId: true },
+                },
+              },
+            },
+            reviewers: {
+              select: {
+                employee: {
+                  select: { userId: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!item) {
+      throw new NotFoundException('Subtask not found.');
+    }
+
+    await this.assertTaskVisible(item.taskId, userId);
+
+    const [roles, employee] = await Promise.all([
+      this.roles(userId),
+      this.employee(userId),
+    ]);
+
+    const managerial =
+      roles.includes('SUPER_ADMIN') ||
+      roles.includes('ADMIN') ||
+      roles.includes('MANAGER');
+
+    if (
+      !managerial &&
+      (!employee || employee.id !== item.assignedEmployeeId)
+    ) {
+      throw new ForbiddenException(
+        'Only the assigned team member or their manager can update this subtask.',
+      );
+    }
+
+    const now = new Date();
+    const action =
+      dto.status === 'STARTED'
+        ? 'SUBTASK_STARTED'
+        : dto.status === 'PAUSED'
+          ? 'SUBTASK_PAUSED'
+          : 'SUBTASK_COMPLETED';
+
+    // One employee should have only one actively-started subtask inside the same task.
+    // Starting the next subtask automatically pauses any sibling subtask that was active.
+    let siblingIdsToPause: string[] = [];
+    if (dto.status === 'STARTED' && item.assignedEmployeeId) {
+      const siblings = await this.prisma.subtask.findMany({
+        where: {
+          taskId: item.taskId,
+          assignedEmployeeId: item.assignedEmployeeId,
+          id: { not: item.id },
+          isCompleted: false,
+          deletedAt: null,
+        },
+        select: { id: true },
+      });
+
+      if (siblings.length) {
+        const siblingIds = siblings.map((subtask) => subtask.id);
+        const siblingLogs = await this.prisma.activityLog.findMany({
+          where: {
+            entityType: 'SUBTASK',
+            entityId: { in: siblingIds },
+            action: {
+              in: ['SUBTASK_STARTED', 'SUBTASK_PAUSED', 'SUBTASK_COMPLETED'],
+            },
+          },
+          select: { entityId: true, action: true },
+          orderBy: { createdAt: 'desc' },
+        });
+
+        const latest = new Map<string, string>();
+        for (const log of siblingLogs) {
+          if (log.entityId && !latest.has(log.entityId)) {
+            latest.set(log.entityId, log.action);
+          }
+        }
+
+        siblingIdsToPause = siblingIds.filter(
+          (siblingId) => latest.get(siblingId) === 'SUBTASK_STARTED',
+        );
+      }
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const subtask = await tx.subtask.update({
+        where: { id },
+        data: {
+          isCompleted: dto.status === 'COMPLETED',
+          completedAt:
+            dto.status === 'COMPLETED' ? now : null,
+        },
+      });
+
+      if (siblingIdsToPause.length) {
+        await tx.activityLog.createMany({
+          data: siblingIdsToPause.map((siblingId) => ({
+            userId,
+            action: 'SUBTASK_PAUSED',
+            entityType: 'SUBTASK',
+            entityId: siblingId,
+            previousValue: { workflowStatus: 'STARTED' },
+            newValue: { workflowStatus: 'PAUSED' },
+            metadata: {
+              taskId: item.taskId,
+              assignedEmployeeId: item.assignedEmployeeId,
+              reason: 'AUTO_PAUSED_WHEN_ANOTHER_SUBTASK_STARTED',
+            },
+          })),
+        });
+      }
+
+      await tx.activityLog.create({
+        data: {
+          userId,
+          action,
+          entityType: 'SUBTASK',
+          entityId: id,
+          previousValue: {
+            completed: item.isCompleted,
+          },
+          newValue: {
+            workflowStatus: dto.status,
+            completed: dto.status === 'COMPLETED',
+          },
+          metadata: {
+            taskId: item.taskId,
+            assignedEmployeeId: item.assignedEmployeeId,
+            subtaskTitle: item.title,
+          },
+        },
+      });
+
+      return subtask;
+    });
+
+    const supervisorUserIds = Array.from(
+      new Set(
+        [
+          item.task.createdById,
+          item.task.department?.head?.userId ?? null,
+          ...item.task.reviewers.map(
+            (reviewer) => reviewer.employee.userId,
+          ),
+        ].filter((value): value is string => Boolean(value)),
+      ),
+    ).filter((id) => id !== userId);
+
+    if (supervisorUserIds.length) {
+      await this.notifications.notifyUsers(supervisorUserIds, {
+        actorId: userId,
+        kind: NotificationKind.USER_MENTIONED,
+        title: `Subtask ${dto.status.toLowerCase()}`,
+        message: `${item.title} · ${item.task.title}`,
+        entityType: 'TASK',
+        entityId: item.taskId,
+        redirectPath: `/tasks?task=${item.taskId}`,
+      });
+    }
+
+    return {
+      ...updated,
+      workflowStatus: dto.status,
+    };
   }
 
   async completeSubtask(

@@ -19,6 +19,11 @@ export default function ResetPasswordPage() {
     useState('');
 
   const [
+    tokenLoaded,
+    setTokenLoaded,
+  ] = useState(false);
+
+  const [
     newPassword,
     setNewPassword,
   ] = useState('');
@@ -43,12 +48,10 @@ export default function ResetPasswordPage() {
         window.location.search,
       );
 
-    const tokenFromUrl =
-      params.get('token');
-
-    if (tokenFromUrl) {
-      setToken(tokenFromUrl);
-    }
+    setToken(
+      params.get('token') ?? '',
+    );
+    setTokenLoaded(true);
   }, []);
 
   const submit = async (
@@ -57,6 +60,13 @@ export default function ResetPasswordPage() {
     event.preventDefault();
 
     setError('');
+
+    if (!token) {
+      setError(
+        'This reset link is invalid or has expired.',
+      );
+      return;
+    }
 
     if (
       newPassword !==
@@ -115,6 +125,14 @@ export default function ResetPasswordPage() {
     }
   };
 
+  if (!tokenLoaded) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-50 px-6">
+        <Loader2 className="h-6 w-6 animate-spin text-slate-500" />
+      </main>
+    );
+  }
+
   if (success) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-50 px-6">
@@ -141,6 +159,30 @@ export default function ResetPasswordPage() {
     );
   }
 
+  if (!token) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-50 px-6">
+        <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+          <h1 className="text-2xl font-bold tracking-tight">
+            Reset link unavailable
+          </h1>
+
+          <p className="mt-3 text-sm text-slate-500">
+            This password reset link is invalid or has expired.
+            Please request a new reset link.
+          </p>
+
+          <Link
+            href="/forgot-password"
+            className="mt-7 inline-flex rounded-xl bg-slate-950 px-6 py-3 text-sm font-bold text-white"
+          >
+            Request new reset link
+          </Link>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-50 px-6">
       <div className="w-full max-w-md rounded-3xl border border-slate-200 bg-white p-8 shadow-sm">
@@ -152,18 +194,6 @@ export default function ResetPasswordPage() {
           onSubmit={submit}
           className="mt-8 space-y-4"
         >
-          <input
-            value={token}
-            onChange={(event) =>
-              setToken(
-                event.target.value,
-              )
-            }
-            required
-            placeholder="Reset token"
-            className="w-full rounded-xl border border-slate-200 px-4 py-3.5 text-sm"
-          />
-
           <input
             type="password"
             value={newPassword}
