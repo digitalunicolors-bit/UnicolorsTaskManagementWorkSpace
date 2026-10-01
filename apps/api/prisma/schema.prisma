@@ -369,7 +369,12 @@ model Client {
   quotationAmount   Float?
   quotationDetails  String?
   billingDetails    String?
+  scopeCommitments  Json?
+  paymentRemark     String?
   quotationPreparedAt DateTime?
+  quotationApprovedAt DateTime?
+  quotationApprovedById String?
+  quotationApprovalNote String?
   quotationSentAt   DateTime?
   clientCommercialConfirmedAt DateTime?
   clientServicingHandoverAt DateTime?
@@ -431,6 +436,7 @@ model Project {
   departmentId     String?
   startDate        DateTime?
   deadline         DateTime?
+  isRecurring      Boolean       @default(false)
   priority         Priority           @default(HIGH)
   status           ProjectStatus      @default(PLANNING)
   reviewStage      ProjectReviewStage?

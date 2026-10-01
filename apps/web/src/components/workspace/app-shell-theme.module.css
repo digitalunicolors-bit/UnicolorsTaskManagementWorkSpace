@@ -1,72 +1,70 @@
 .themeRoot {
   color-scheme: light;
-  --uc-bg: #F9FAFB;
-  --uc-soft: #DDE8F0;
-  --uc-mid: #4F6F8F;
-  --uc-ink: #252B37;
+  --uc-bg: #F7F7F5;
+  --uc-surface: #FFFFFF;
+  --uc-soft: #F2F1EF;
+  --uc-border: #E7E7E3;
+  --uc-muted: #777773;
+  --uc-ink: #242424;
+  --uc-accent: #7C3AED;
+  --uc-accent-soft: #F1EBFA;
   background: var(--uc-bg);
   color: var(--uc-ink);
 }
 
-/* Workspace palette: graphite + soft blue + cool white surfaces. */
+/* Notion/agent-style workspace: warm neutral surfaces + one purple accent. */
 .themeRoot :global(.bg-slate-50) {
-  background-color: #F9FAFB !important;
+  background-color: #F7F7F5 !important;
 }
 
 .themeRoot :global(.bg-slate-100) {
-  background-color: #DDE8F0 !important;
+  background-color: #F2F1EF !important;
 }
 
 .themeRoot :global(.bg-slate-200) {
-  background-color: rgb(79 111 143 / 0.14) !important;
+  background-color: #EAE9E6 !important;
 }
 
-.themeRoot :global(.bg-slate-950) {
-  background-color: #252B37 !important;
-}
-
+.themeRoot :global(.bg-slate-950),
 .themeRoot :global(.bg-blue-600),
 .themeRoot :global(.bg-indigo-600),
 .themeRoot :global(.bg-violet-600) {
-  background-color: #4F6F8F !important;
+  background-color: #7C3AED !important;
 }
 
-.themeRoot :global(.hover\:bg-slate-800:hover) {
-  background-color: rgb(37 43 55 / 0.92) !important;
-}
-
+.themeRoot :global(.hover\:bg-slate-800:hover),
 .themeRoot :global(.hover\:bg-blue-700:hover),
 .themeRoot :global(.hover\:bg-indigo-700:hover),
 .themeRoot :global(.hover\:bg-violet-700:hover) {
-  background-color: rgb(79 111 143 / 0.9) !important;
+  background-color: #6D28D9 !important;
 }
 
 .themeRoot :global(.bg-blue-50),
 .themeRoot :global(.bg-indigo-50),
 .themeRoot :global(.bg-violet-50) {
-  background-color: rgb(221 232 240 / 0.72) !important;
+  background-color: #F7F3FC !important;
 }
 
 .themeRoot :global(.bg-blue-100),
 .themeRoot :global(.bg-indigo-100),
 .themeRoot :global(.bg-violet-100) {
-  background-color: #DDE8F0 !important;
+  background-color: #F1EBFA !important;
 }
 
 .themeRoot :global(.text-slate-950),
 .themeRoot :global(.text-slate-900),
 .themeRoot :global(.text-slate-800) {
-  color: #252B37 !important;
+  color: #242424 !important;
 }
 
 .themeRoot :global(.text-slate-700),
 .themeRoot :global(.text-slate-600) {
-  color: rgb(37 43 55 / 0.76) !important;
+  color: #555551 !important;
 }
 
 .themeRoot :global(.text-slate-500),
 .themeRoot :global(.text-slate-400) {
-  color: rgb(37 43 55 / 0.56) !important;
+  color: #858581 !important;
 }
 
 .themeRoot :global(.text-blue-900),
@@ -82,7 +80,7 @@
 .themeRoot :global(.text-violet-800),
 .themeRoot :global(.text-violet-700),
 .themeRoot :global(.text-violet-600) {
-  color: #4F6F8F !important;
+  color: #7C3AED !important;
 }
 
 .themeRoot :global(.border-slate-100),
@@ -94,7 +92,7 @@
 .themeRoot :global(.border-indigo-200),
 .themeRoot :global(.border-violet-100),
 .themeRoot :global(.border-violet-200) {
-  border-color: rgb(79 111 143 / 0.2) !important;
+  border-color: #E7E7E3 !important;
 }
 
 .themeRoot :global(.ring-blue-100),
@@ -103,125 +101,162 @@
 .themeRoot :global(.ring-indigo-200),
 .themeRoot :global(.ring-violet-100),
 .themeRoot :global(.ring-violet-200) {
-  --tw-ring-color: rgb(79 111 143 / 0.25) !important;
+  --tw-ring-color: rgb(124 58 237 / 0.18) !important;
 }
 
 .themeRoot :global(input),
 .themeRoot :global(select),
 .themeRoot :global(textarea) {
-  border-color: rgb(79 111 143 / 0.24);
+  border-color: #E2E1DE;
   background-color: #FFFFFF;
-  color: #252B37;
+  color: #242424;
 }
 
 .themeRoot :global(input:focus),
 .themeRoot :global(select:focus),
 .themeRoot :global(textarea:focus) {
-  border-color: #4F6F8F !important;
+  border-color: #A78BFA !important;
   outline: none;
+  box-shadow: 0 0 0 3px rgb(124 58 237 / 0.10);
 }
 
 .themeRoot :global(input::placeholder),
 .themeRoot :global(textarea::placeholder) {
-  color: rgb(37 43 55 / 0.42);
+  color: #A1A19D;
 }
 
-/* Compact workspace rhythm. */
-.themeRoot :global(.space-y-8 > :not([hidden]) ~ :not([hidden])) {
-  margin-top: 1.25rem !important;
+/* Flatter, tighter cards like the reference UI. */
+.themeRoot :global(main .rounded-3xl) {
+  border-radius: 14px !important;
 }
 
-.themeRoot :global(.space-y-6 > :not([hidden]) ~ :not([hidden])) {
-  margin-top: 1rem !important;
+.themeRoot :global(main .rounded-2xl) {
+  border-radius: 12px !important;
 }
 
-.themeRoot :global(.space-y-5 > :not([hidden]) ~ :not([hidden])) {
-  margin-top: 0.875rem !important;
+.themeRoot :global(main .rounded-xl) {
+  border-radius: 10px !important;
+}
+
+.themeRoot :global(main .shadow-sm) {
+  box-shadow: 0 1px 2px rgb(36 36 36 / 0.035) !important;
+}
+
+.themeRoot :global(main .shadow-md) {
+  box-shadow: 0 4px 12px rgb(36 36 36 / 0.055) !important;
+}
+
+.themeRoot :global(main .shadow-lg),
+.themeRoot :global(main .shadow-xl) {
+  box-shadow: 0 8px 24px rgb(36 36 36 / 0.07) !important;
+}
+
+.themeRoot :global(main table) {
+  border-color: #EAE9E6;
+}
+
+.themeRoot :global(main th) {
+  background-color: #FAFAF9;
+  color: #7A7A76;
+  font-size: 0.72rem;
+  letter-spacing: 0.025em;
 }
 
 .themeRoot :global(main th),
 .themeRoot :global(main td) {
-  padding-top: 0.7rem !important;
-  padding-bottom: 0.7rem !important;
+  padding-top: 0.65rem !important;
+  padding-bottom: 0.65rem !important;
 }
 
-.themeRoot :global(main .shadow-sm) {
-  box-shadow: 0 1px 2px rgb(37 43 55 / 0.06);
+/* Compact workspace rhythm. */
+.themeRoot :global(.space-y-8 > :not([hidden]) ~ :not([hidden])) {
+  margin-top: 1.2rem !important;
+}
+
+.themeRoot :global(.space-y-6 > :not([hidden]) ~ :not([hidden])) {
+  margin-top: 0.95rem !important;
+}
+
+.themeRoot :global(.space-y-5 > :not([hidden]) ~ :not([hidden])) {
+  margin-top: 0.85rem !important;
+}
+
+/* Interaction polish without the old floating-card feel. */
+.themeRoot :global(button),
+.themeRoot :global(a),
+.themeRoot :global([role='button']) {
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    box-shadow 150ms ease,
+    opacity 150ms ease,
+    transform 120ms ease;
+}
+
+.themeRoot :global(button:not(:disabled):active),
+.themeRoot :global(a[href]:active),
+.themeRoot :global([role='button']:active) {
+  transform: scale(0.988);
 }
 
 .darkTheme {
   color-scheme: dark;
-  background: #252B37;
+  --uc-bg: #1F1F1E;
+  --uc-surface: #262625;
+  --uc-soft: #30302E;
+  --uc-border: #3A3A37;
+  --uc-muted: #A4A49F;
+  --uc-ink: #F5F5F3;
+  background: #1F1F1E;
 }
 
 .darkTheme :global(.bg-slate-50) {
-  background-color: #252B37 !important;
+  background-color: #1F1F1E !important;
 }
 
 .darkTheme :global(.bg-white),
 .darkTheme :global(.bg-white\/95) {
-  background-color: rgb(255 255 255 / 0.08) !important;
+  background-color: #262625 !important;
 }
 
 .darkTheme :global(.bg-slate-100) {
-  background-color: rgb(221 232 240 / 0.12) !important;
-}
-
-.darkTheme :global(.bg-slate-200) {
-  background-color: rgb(79 111 143 / 0.2) !important;
+  background-color: #30302E !important;
 }
 
 .darkTheme :global(.text-slate-950),
 .darkTheme :global(.text-slate-900),
 .darkTheme :global(.text-slate-800) {
-  color: #F9FAFB !important;
+  color: #F5F5F3 !important;
 }
 
 .darkTheme :global(.text-slate-700),
 .darkTheme :global(.text-slate-600) {
-  color: rgb(249 250 251 / 0.8) !important;
+  color: #D2D2CE !important;
 }
 
 .darkTheme :global(.text-slate-500),
 .darkTheme :global(.text-slate-400) {
-  color: #DDE8F0 !important;
+  color: #A4A49F !important;
 }
 
 .darkTheme :global(.border-slate-100),
 .darkTheme :global(.border-slate-200),
 .darkTheme :global(.border-slate-300) {
-  border-color: rgb(221 232 240 / 0.25) !important;
+  border-color: #3A3A37 !important;
 }
 
 .darkTheme :global(input),
 .darkTheme :global(select),
 .darkTheme :global(textarea) {
-  border-color: rgb(221 232 240 / 0.35) !important;
-  background-color: rgb(255 255 255 / 0.07) !important;
-  color: #F9FAFB !important;
-}
-
-.darkTheme :global(input::placeholder),
-.darkTheme :global(textarea::placeholder) {
-  color: rgb(221 232 240 / 0.65) !important;
+  border-color: #454540 !important;
+  background-color: #262625 !important;
+  color: #F5F5F3 !important;
 }
 
 .darkTheme :global(option) {
-  background-color: #252B37;
-  color: #F9FAFB;
-}
-
-.darkTheme :global(.hover\:bg-slate-50:hover),
-.darkTheme :global(.hover\:bg-slate-100:hover) {
-  background-color: rgb(221 232 240 / 0.1) !important;
-}
-
-.darkTheme :global(aside .bg-white) {
-  background-color: #FFFFFF !important;
-}
-
-.darkTheme :global(aside .bg-white.text-slate-950) {
-  color: #252B37 !important;
+  background-color: #262625;
+  color: #F5F5F3;
 }
 
 .reducedMotion *,
@@ -233,7 +268,6 @@
   transition-duration: 0.01ms !important;
 }
 
-/* Phase 19: subtle motion and interaction polish. */
 .sidebar {
   transition:
     width 220ms cubic-bezier(0.22, 1, 0.36, 1),
@@ -247,24 +281,25 @@
 
 .navItem {
   transition:
-    background-color 160ms ease,
-    color 160ms ease,
-    box-shadow 160ms ease,
-    transform 140ms ease;
+    background-color 150ms ease,
+    color 150ms ease,
+    transform 120ms ease;
 }
 
 .navItem:active {
-  transform: scale(0.985);
+  transform: scale(0.988);
 }
 
 .pageEnter {
-  animation: uc-page-enter 170ms ease-out both;
+  /* Keep workspace children out of an animation-created stacking context so
+     fixed dialogs can correctly cover the global header/sidebar. */
+  animation: none;
 }
 
 @keyframes uc-sidebar-label-in {
   from {
     opacity: 0;
-    transform: translateX(-4px);
+    transform: translateX(-3px);
   }
   to {
     opacity: 1;
@@ -273,61 +308,8 @@
 }
 
 @keyframes uc-page-enter {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-.themeRoot :global(button),
-.themeRoot :global(a),
-.themeRoot :global([role='button']) {
-  transition:
-    background-color 160ms ease,
-    border-color 160ms ease,
-    color 160ms ease,
-    box-shadow 160ms ease,
-    opacity 160ms ease,
-    transform 140ms ease;
-}
-
-.themeRoot :global(button:not(:disabled):active),
-.themeRoot :global(a[href]:active),
-.themeRoot :global([role='button']:active) {
-  transform: scale(0.985);
-}
-
-.themeRoot :global(input),
-.themeRoot :global(select),
-.themeRoot :global(textarea) {
-  transition:
-    border-color 160ms ease,
-    box-shadow 160ms ease,
-    background-color 160ms ease;
-}
-
-.themeRoot :global(input:focus),
-.themeRoot :global(select:focus),
-.themeRoot :global(textarea:focus) {
-  box-shadow: 0 0 0 3px rgb(79 111 143 / 0.12);
-}
-
-.themeRoot :global(main .shadow-sm) {
-  transition:
-    transform 170ms ease,
-    box-shadow 170ms ease,
-    border-color 170ms ease;
-}
-
-.themeRoot :global(main .shadow-sm:hover) {
-  transform: translateY(-1px);
-  box-shadow: 0 5px 14px rgb(37 43 55 / 0.07);
-}
-
-.themeRoot :global(main) {
-  scroll-behavior: smooth;
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @media (prefers-reduced-motion: reduce) {

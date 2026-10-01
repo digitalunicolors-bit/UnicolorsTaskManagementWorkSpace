@@ -189,7 +189,7 @@ export function RefreshButton({
       type="button"
       onClick={onClick}
       disabled={loading}
-      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+      className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
     >
       <RefreshCw
         className={`h-4 w-4 ${
@@ -217,7 +217,7 @@ export function StatCard({
 }) {
   return (
     <div
-      className={`rounded-2xl border p-4 shadow-sm ${
+      className={`rounded-xl border p-4 shadow-sm ${
         danger
           ? "border-red-200 bg-red-50/60"
           : "border-slate-200 bg-white"
@@ -256,7 +256,7 @@ export function StatCard({
           className={`flex h-11 w-11 items-center justify-center rounded-xl ${
             danger
               ? "bg-red-100 text-red-700"
-              : "bg-slate-100 text-slate-700"
+              : "bg-violet-50 text-violet-700"
           }`}
         >
           {icon}
@@ -278,7 +278,7 @@ export function SectionCard({
   children: ReactNode;
 }) {
   return (
-    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
       <div className="flex items-center justify-between gap-4 border-b border-slate-100 px-4 py-3">
         <div>
           <h2 className="font-black text-slate-900">
@@ -452,7 +452,7 @@ export function QuickLink({
   return (
     <Link
       href={href}
-      className="group flex items-center justify-between gap-3 rounded-xl border border-slate-200 p-3 transition hover:border-indigo-200 hover:bg-indigo-50/40"
+      className="group flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3 transition hover:border-violet-200 hover:bg-violet-50/60"
     >
       <div>
         <p className="font-bold text-slate-900">
@@ -464,7 +464,7 @@ export function QuickLink({
         </p>
       </div>
 
-      <ArrowRight className="h-4 w-4 text-slate-400 transition group-hover:translate-x-1 group-hover:text-indigo-600" />
+      <ArrowRight className="h-4 w-4 text-slate-400 transition group-hover:translate-x-1 group-hover:text-violet-600" />
     </Link>
   );
 }
@@ -475,7 +475,7 @@ export function EmptyState({
   message: string;
 }) {
   return (
-    <div className="rounded-xl border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
+    <div className="rounded-lg border border-dashed border-slate-200 px-4 py-6 text-center text-sm text-slate-500">
       {message}
     </div>
   );
@@ -489,7 +489,7 @@ export function DashboardLoading({
   return (
     <div className="flex min-h-[55vh] items-center justify-center">
       <div className="text-center">
-        <RefreshCw className="mx-auto h-7 w-7 animate-spin text-indigo-600" />
+        <RefreshCw className="mx-auto h-7 w-7 animate-spin text-violet-600" />
 
         <p className="mt-3 text-sm font-semibold text-slate-600">
           {message}
@@ -507,7 +507,7 @@ export function DashboardError({
   onRetry: () => void;
 }) {
   return (
-    <div className="rounded-2xl border border-red-200 bg-red-50 p-6">
+    <div className="rounded-xl border border-red-200 bg-red-50 p-6">
       <div className="flex gap-3">
         <AlertTriangle className="mt-0.5 h-5 w-5 text-red-600" />
 

@@ -48,9 +48,7 @@ import {
 
 import styles from './app-shell-theme.module.css';
 import {
-  formatWorkspaceDateTime,
   getResolvedTheme,
-  getWorkspaceTimeZoneLabel,
   useWorkspacePreferences,
 } from './workspace-preferences';
 
@@ -465,9 +463,6 @@ export function AppShell({
     preferences,
   } = useWorkspacePreferences();
 
-  const [now, setNow] =
-    useState(() => new Date());
-
   const [systemDark, setSystemDark] =
     useState(false);
 
@@ -482,16 +477,6 @@ export function AppShell({
 
   const [toastMessage, setToastMessage] =
     useState('');
-
-  useEffect(() => {
-    const timer = window.setInterval(
-      () => setNow(new Date()),
-      30_000,
-    );
-
-    return () =>
-      window.clearInterval(timer);
-  }, []);
 
   useEffect(() => {
     const media = window.matchMedia(
@@ -587,15 +572,6 @@ export function AppShell({
 
   const text =
     shellCopy[preferences.language];
-
-  const headerDateTime = useMemo(
-    () =>
-      formatWorkspaceDateTime(
-        now,
-        preferences,
-      ),
-    [now, preferences],
-  );
 
   const isSuperAdmin =
     Boolean(
@@ -780,7 +756,9 @@ export function AppShell({
         pathname === '/clients' ||
         pathname.startsWith('/clients/') ||
         pathname === '/tasks' ||
-        pathname.startsWith('/tasks/');
+        pathname.startsWith('/tasks/') ||
+        pathname === '/notifications' ||
+        pathname.startsWith('/notifications/');
 
       if (!isAllowedBdmRoute) {
         router.replace('/manager/dashboard');
@@ -899,7 +877,7 @@ export function AppShell({
             hasPermission(item.permission),
         )
       : isBdmOnlyManager
-        ? bdmNavigation
+        ? [...bdmNavigation, ...navigation.filter((item) => item.labelKey === 'notifications')]
         : isClientServicingOnlyManager
           ? clientServicingNavigation
           : [
@@ -972,7 +950,7 @@ export function AppShell({
 
   return (
     <div
-      className={`flex min-h-screen bg-[#F6F3ED] text-[#313851] ${styles.themeRoot} ${
+      className={`flex min-h-screen bg-[#F7F7F5] text-[#242424] ${styles.themeRoot} ${
         resolvedTheme === 'dark'
           ? styles.darkTheme
           : ''
@@ -983,13 +961,13 @@ export function AppShell({
       }`}
     >
       <aside
-        className={`${styles.sidebar} relative hidden shrink-0 flex-col border-r border-[#C2CBD3]/30 bg-[#313851] lg:flex ${
-          sidebarExpanded ? 'w-60' : 'w-[76px]'
+        className={`${styles.sidebar} relative hidden shrink-0 flex-col border-r border-[#E7E7E3] bg-[#FBFBFA] lg:flex ${
+          sidebarExpanded ? 'w-64' : 'w-[72px]'
         }`}
       >
         <div
-          className={`border-b border-white/10 py-4 ${
-            sidebarExpanded ? 'px-4' : 'px-2'
+          className={`border-b border-[#ECEBE8] py-3.5 ${
+            sidebarExpanded ? 'px-3.5' : 'px-2'
           }`}
         >
           <div
@@ -1001,20 +979,20 @@ export function AppShell({
           >
             <div
               className={`flex min-w-0 items-center ${
-                sidebarExpanded ? 'gap-2.5' : 'justify-center'
+                sidebarExpanded ? 'gap-2' : 'justify-center'
               }`}
             >
               <img
                 src="/unicolors-mark.png"
                 alt="Unicolors"
-                className="h-9 w-9 shrink-0 object-contain"
+                className="h-8 w-8 shrink-0 object-contain"
               />
               {sidebarExpanded && (
                 <div className={`${styles.sidebarLabel} min-w-0`}>
-                  <div className="truncate text-xl font-black tracking-tight text-white">
+                  <div className="text-[1.12rem] font-black tracking-tight text-[#242424] whitespace-nowrap">
                     UNICOLORS
                   </div>
-                  <p className="mt-0.5 truncate text-xs font-medium tracking-wide text-[#C2CBD3]/75">
+                  <p className="mt-0.5 text-[11px] font-medium tracking-wide text-[#8A8A86] whitespace-nowrap">
                     Task Management
                   </p>
                 </div>
@@ -1027,12 +1005,12 @@ export function AppShell({
               title={sidebarExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
               aria-label={sidebarExpanded ? 'Collapse sidebar' : 'Expand sidebar'}
               aria-expanded={sidebarExpanded}
-              className="inline-flex shrink-0 items-center justify-center rounded-xl border border-white/15 bg-white/10 p-2.5 text-[#C2CBD3] shadow-sm hover:bg-white/15 hover:text-white"
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#E3E2DE] bg-white p-0 text-[#777773] shadow-sm hover:border-[#D4C5F6] hover:bg-[#F5F0FD] hover:text-[#7C3AED]"
             >
               {sidebarExpanded ? (
-                <PanelLeftClose className="h-4 w-4" />
+                <PanelLeftClose className="h-[15px] w-[15px]" />
               ) : (
-                <PanelLeftOpen className="h-4 w-4" />
+                <PanelLeftOpen className="h-[15px] w-[15px]" />
               )}
             </button>
           </div>
@@ -1049,10 +1027,12 @@ export function AppShell({
                 item.icon;
 
               const itemHref =
-                (isHrManager || isBdmManager || isAccountsManager || isClientServicingManager) &&
-                item.labelKey === 'dashboard'
-                  ? '/manager/dashboard'
-                  : item.href;
+                isBdmOnlyManager && item.labelKey === 'myTasks'
+                  ? '/tasks?mine=1&bdm=1'
+                  : (isHrManager || isBdmManager || isAccountsManager || isClientServicingManager) &&
+                      item.labelKey === 'dashboard'
+                    ? '/manager/dashboard'
+                    : item.href;
 
               const isMyTasksMode =
                 searchParams.get('mine') === '1';
@@ -1095,8 +1075,8 @@ export function AppShell({
                     sidebarExpanded ? 'gap-3 px-3' : 'justify-center px-2'
                   } ${
                     active
-                      ? 'bg-[#F6F3ED] text-[#313851] shadow-sm'
-                      : 'text-[#C2CBD3] hover:bg-white/10 hover:text-white'
+                      ? 'bg-[#F1EBFA] text-[#7C3AED]'
+                      : 'text-[#6F6F6B] hover:bg-[#F4F3F1] hover:text-[#242424]'
                   }`}
                 >
                   <Icon className="h-4 w-4" />
@@ -1125,22 +1105,22 @@ export function AppShell({
           )}
         </nav>
 
-        <div className="border-t border-white/10 p-3">
+        <div className="border-t border-[#ECEBE8] p-3">
           <div
             title={sidebarExpanded ? undefined : `${displayName} · ${displayDesignation}`}
-            className={`mb-2 flex items-center rounded-xl bg-white/5 p-3 ${
+            className={`mb-2 flex items-center rounded-xl bg-[#F5F4F2] p-3 ${
               sidebarExpanded ? 'gap-3' : 'justify-center'
             }`}
           >
-            <CircleUserRound className="h-8 w-8 shrink-0 text-[#C2CBD3]" />
+            <CircleUserRound className="h-8 w-8 shrink-0 text-[#8B5CF6]" />
 
             {sidebarExpanded && (
               <div className={`${styles.sidebarLabel} min-w-0`}>
-                <p className="truncate text-sm font-semibold text-white">
+                <p className="truncate text-sm font-semibold text-[#242424]">
                   {displayName}
                 </p>
 
-                <p className="truncate text-xs text-[#C2CBD3]/70">
+                <p className="truncate text-xs text-[#8A8A86]">
                   {displayDesignation}
                 </p>
               </div>
@@ -1153,7 +1133,7 @@ export function AppShell({
             onClick={() =>
               void handleLogout()
             }
-            className={`flex w-full items-center rounded-xl py-2.5 text-sm font-medium text-[#C2CBD3] hover:bg-white/10 hover:text-white ${
+            className={`flex w-full items-center rounded-xl py-2.5 text-sm font-medium text-[#6F6F6B] hover:bg-[#F4F3F1] hover:text-[#242424] ${
               sidebarExpanded ? 'gap-3 px-3' : 'justify-center px-2'
             }`}
           >
@@ -1169,22 +1149,13 @@ export function AppShell({
       </aside>
 
       <div className="min-w-0 flex-1">
-        <header className="sticky top-0 z-10 bg-transparent">
-          <div className="flex h-14 items-center justify-end px-4 md:px-6">
-            <div className="flex items-center gap-2">
-              {preferences.showHeaderDateTime && (
-                <div className="hidden text-right md:block">
-                  <p className="text-xs font-semibold text-[#313851]">
-                    {headerDateTime}
-                  </p>
-                  <p className="mt-0.5 text-[10px] text-[#313851]/55">
-                    {getWorkspaceTimeZoneLabel(
-                      preferences.timeZone,
-                    )}
-                  </p>
-                </div>
-              )}
+        <header className="sticky top-0 z-10 bg-[#F7F7F5]/95 backdrop-blur">
+          <div className="flex h-12 items-center justify-between px-4 md:px-6">
+            <p className="truncate text-[20px] font-black tracking-tight text-[#242424] md:text-[21px]">
+              Hello, {displayName}
+            </p>
 
+            <div className="flex items-center gap-2">
               <NotificationBell />
 
               <button
@@ -1192,7 +1163,7 @@ export function AppShell({
                 onClick={() =>
                   void handleLogout()
                 }
-                className="rounded-xl border border-[#C2CBD3] bg-white/55 p-2.5 text-[#313851] transition hover:bg-white lg:hidden"
+                className="rounded-lg border border-[#E3E2DE] bg-white p-2 text-[#555551] transition hover:bg-[#F5F0FD] hover:text-[#7C3AED] lg:hidden"
               >
                 <LogOut className="h-4 w-4" />
               </button>
@@ -1239,8 +1210,8 @@ export function AppShell({
                     }
                     className={`flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition ${
                       active
-                        ? 'bg-[#313851] text-white'
-                        : 'bg-[#C2CBD3]/45 text-[#313851]'
+                        ? 'bg-[#7C3AED] text-white'
+                        : 'bg-[#F1F0EE] text-[#555551]'
                     }`}
                   >
                     <Icon className="h-3.5 w-3.5" />
@@ -1261,17 +1232,8 @@ export function AppShell({
           </div>
         </header>
 
-        <main className="px-4 pb-6 pt-2 md:px-6 md:pb-8 md:pt-3">
+        <main className="px-4 pb-6 pt-1 md:px-6 md:pb-8 md:pt-1">
           <div key={pathname} className={styles.pageEnter}>
-            <div className="mb-3">
-              <p className="text-2xl font-black tracking-tight text-[#313851]">
-                Hello, {displayName}
-              </p>
-              <p className="mt-0.5 text-sm font-medium text-[#313851]/65">
-                {displayDesignation}
-              </p>
-            </div>
-
             {children}
           </div>
         </main>
@@ -1281,7 +1243,7 @@ export function AppShell({
         <div
           role="status"
           aria-live="polite"
-          className="fixed right-4 top-20 z-[120] max-w-sm rounded-2xl border border-slate-200 bg-slate-950 px-4 py-3 text-sm font-semibold text-white shadow-2xl"
+          className="fixed right-4 top-20 z-[120] max-w-sm rounded-xl border border-[#E7E7E3] bg-[#242424] px-4 py-3 text-sm font-semibold text-white shadow-xl"
         >
           {toastMessage}
         </div>

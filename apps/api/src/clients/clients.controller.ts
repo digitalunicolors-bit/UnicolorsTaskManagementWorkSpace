@@ -28,6 +28,7 @@ import { UpdateClientContactDto } from './dto/update-client-contact.dto';
 import { UpdateClientDto } from './dto/update-client.dto';
 import { UpdateClientOnboardingDto } from './dto/update-client-onboarding.dto';
 import { ManageClientApprovalDto } from './dto/manage-client-approval.dto';
+import { ManageQuotationApprovalDto } from './dto/manage-quotation-approval.dto';
 
 type AuthenticatedRequest = {
   user?: {
@@ -154,6 +155,24 @@ export class ClientsController {
     @Req() request?: AuthenticatedRequest,
   ) {
     return this.clientsService.manageClientApproval(
+      id,
+      dto,
+      {
+        userId: request?.user?.id,
+        roles: request?.user?.roles,
+      },
+    );
+  }
+
+
+  @Patch(':id/quotation-approval')
+  @Permissions('clients.view')
+  quotationApproval(
+    @Param('id') id: string,
+    @Body() dto: ManageQuotationApprovalDto,
+    @Req() request?: AuthenticatedRequest,
+  ) {
+    return this.clientsService.manageQuotationApproval(
       id,
       dto,
       {

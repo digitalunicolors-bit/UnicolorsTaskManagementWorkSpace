@@ -3,6 +3,7 @@ import {
   IsBoolean,
   IsEmail,
   IsIn,
+  IsObject,
   IsOptional,
   IsString,
   MaxLength,
@@ -74,6 +75,15 @@ export class UpdateClientDto {
   @IsOptional()
   @IsString()
   requirements?: string;
+
+  @IsOptional()
+  @IsObject()
+  scopeCommitments?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  paymentRemark?: string;
 
   @IsOptional()
   @IsString()

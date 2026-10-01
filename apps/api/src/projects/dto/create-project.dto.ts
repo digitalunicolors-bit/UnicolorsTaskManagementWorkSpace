@@ -1,6 +1,7 @@
 import {
   ArrayUnique,
   IsArray,
+  IsBoolean,
   IsIn,
   IsOptional,
   IsString,
@@ -33,6 +34,10 @@ export class CreateProjectDto {
   @IsOptional()
   @IsString()
   deadline?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isRecurring?: boolean;
 
   @IsOptional()
   @IsIn([

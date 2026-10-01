@@ -30,6 +30,16 @@ export class ClientQueryDto {
   ])
   onboardingStage?: string;
 
+
+  @IsOptional()
+  @IsIn([
+    'ONBOARDING',
+    'CLIENT_APPROVAL',
+    'UNAPPROVED',
+    'QUOTATION',
+  ])
+  workflowStage?: string;
+
   @IsOptional()
   @IsString()
   accountManagerId?: string;

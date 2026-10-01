@@ -38,6 +38,18 @@ type ClientOnboardingStage =
   | 'REJECTED'
   | 'FOLLOW_UP';
 
+type ClientAccountsStage =
+  | 'NEW_HANDOVER'
+  | 'QUOTATION_PREPARED'
+  | 'AWAITING_CLIENT_CONFIRMATION'
+  | 'READY_FOR_CLIENT_SERVICING'
+  | 'HANDED_TO_CLIENT_SERVICING';
+
+type ScopeCommitments = {
+  columns: string[];
+  rows: string[][];
+};
+
 interface Employee {
   id: string;
   employeeId: string;
@@ -56,11 +68,17 @@ interface Client {
   status: ClientStatus;
   onboardingStage: ClientOnboardingStage;
   requirements: string | null;
+  scopeCommitments: ScopeCommitments | null;
+  paymentRemark: string | null;
   termsConditions: string | null;
   termsSharedAt: string | null;
   clientApprovalAt: string | null;
   clientApprovalNote: string | null;
   accountsHandoverAt: string | null;
+  accountsStage: ClientAccountsStage | null;
+  quotationNumber: string | null;
+  quotationApprovedAt: string | null;
+  quotationApprovalNote: string | null;
   isActive: boolean;
   createdAt: string;
   accountManager: Employee | null;
@@ -86,6 +104,7 @@ interface WorkflowAccess {
   departmentId: string | null;
   departmentName: string | null;
   isBusinessDevelopment: boolean;
+  isSuperAdmin: boolean;
   canOnboard: boolean;
   canManageAll: boolean;
   canManageApprovedClient: boolean;
@@ -127,6 +146,27 @@ function splitValues(
     .split(/\r?\n|,/)
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function scopeCommitmentsFromForm(form: FormData): ScopeCommitments | undefined {
+  const raw = String(form.get('scopeCommitmentsJson') ?? '').trim();
+  if (!raw) return undefined;
+
+  try {
+    const parsed = JSON.parse(raw) as ScopeCommitments;
+    if (!Array.isArray(parsed.columns) || !Array.isArray(parsed.rows)) {
+      return undefined;
+    }
+
+    return {
+      columns: parsed.columns.map((column) => String(column).trim()).filter(Boolean),
+      rows: parsed.rows.map((row) =>
+        Array.isArray(row) ? row.map((value) => String(value ?? '').trim()) : [],
+      ),
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 export default function ClientsPage() {
@@ -214,7 +254,7 @@ export default function ClientsPage() {
 
         if (onboardingStage) {
           params.set(
-            'onboardingStage',
+            'workflowStage',
             onboardingStage,
           );
         }
@@ -257,10 +297,21 @@ export default function ClientsPage() {
       window.location.search,
     );
 
-    const stage = params.get('onboardingStage');
+    const workflowStage = params.get('workflowStage');
+    const legacyStage = params.get('onboardingStage');
 
-    if (stage) {
-      setOnboardingStage(stage);
+    if (workflowStage) {
+      setOnboardingStage(workflowStage);
+    } else if (legacyStage) {
+      const mapped: Record<string, string> = {
+        DRAFT: 'ONBOARDING',
+        TERMS_SHARED: 'ONBOARDING',
+        FOLLOW_UP: 'ONBOARDING',
+        AWAITING_CLIENT_APPROVAL: 'CLIENT_APPROVAL',
+        APPROVED: 'QUOTATION',
+        REJECTED: 'UNAPPROVED',
+      };
+      setOnboardingStage(mapped[legacyStage] ?? '');
     }
 
     if (
@@ -315,6 +366,9 @@ export default function ClientsPage() {
             String(
               form.get('requirements') ?? '',
             ).trim() || undefined,
+          scopeCommitments: scopeCommitmentsFromForm(form),
+          paymentRemark:
+            String(form.get('paymentRemark') ?? '').trim() || undefined,
           termsConditions:
             String(
               form.get('termsConditions') ?? '',
@@ -381,6 +435,10 @@ export default function ClientsPage() {
             ).trim(),
             requirements: String(
               form.get('requirements') ?? '',
+            ).trim(),
+            scopeCommitments: scopeCommitmentsFromForm(form),
+            paymentRemark: String(
+              form.get('paymentRemark') ?? '',
             ).trim(),
             termsConditions: String(
               form.get('termsConditions') ?? '',
@@ -572,6 +630,133 @@ export default function ClientsPage() {
     }
   };
 
+  const manageQuotationApproval = async (
+    client: Client,
+    action: 'APPROVE' | 'UNAPPROVE',
+  ) => {
+    let note: string | undefined;
+
+    if (action === 'APPROVE') {
+      const confirmed = await appDialog.confirm({
+        title: 'Approve quotation',
+        message: [
+          `Client: ${client.companyName ?? client.name}`,
+          `Quotation No: ${client.quotationNumber ?? '—'}`,
+          `Amount: ${
+            (client as any).quotationAmount != null
+              ? `₹${Number((client as any).quotationAmount).toLocaleString('en-IN')}`
+              : '—'
+          }`,
+          '',
+          `Commercial Details: ${(client as any).quotationDetails || '—'}`,
+          '',
+          `Billing Details: ${(client as any).billingDetails || '—'}`,
+          '',
+          'Approve this quotation?',
+        ].join('\n'),
+        confirmLabel: 'Approve Quotation',
+      });
+      if (!confirmed) return;
+
+      note =
+        (await appDialog.prompt({
+          title: 'Quotation approval note',
+          placeholder: 'Optional note',
+          multiline: true,
+        }))?.trim() || undefined;
+    } else {
+      note =
+        (await appDialog.prompt({
+          title: 'Request quotation changes',
+          message: 'Add the reason. Accounts will need to revise and submit again.',
+          placeholder: 'Reason',
+          multiline: true,
+          required: true,
+        }))?.trim() || undefined;
+      if (!note) return;
+    }
+
+    setSaving(true);
+    setError('');
+
+    try {
+      await request<Client>(`/clients/${client.id}/quotation-approval`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, note }),
+      });
+      await loadClients();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Unable to update quotation approval.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updateCommercialStage = async (
+    client: Client,
+    stage:
+      | 'AWAITING_CLIENT_CONFIRMATION'
+      | 'READY_FOR_CLIENT_SERVICING'
+      | 'HANDED_TO_CLIENT_SERVICING',
+  ) => {
+    setSaving(true);
+    setError('');
+
+    try {
+      await request<Client>(`/clients/${client.id}/accounts`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stage }),
+      });
+      await loadClients();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Unable to update quotation workflow.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const updatePaymentRemark = async (client: Client) => {
+    const remark = await appDialog.prompt({
+      title: 'Payment Remark',
+      message: client.companyName ?? client.name,
+      placeholder: 'Add payment / follow-up remark',
+      defaultValue: client.paymentRemark ?? '',
+      multiline: true,
+    });
+
+    if (remark === null) return;
+
+    setSaving(true);
+    setError('');
+
+    try {
+      await request<Client>(`/clients/${client.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paymentRemark: remark.trim() }),
+      });
+      await loadClients();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Unable to update payment remark.',
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const deleteClient = async (
     client: Client,
   ) => {
@@ -605,12 +790,51 @@ export default function ClientsPage() {
     }
   };
 
+  const viewQuotation = async (client: Client) => {
+    const quotation = client as Client & {
+      quotationAmount?: number | null;
+      quotationDetails?: string | null;
+      billingDetails?: string | null;
+      quotationApprovalNote?: string | null;
+    };
+
+    await appDialog.alert({
+      title: `Quotation ${client.quotationNumber ?? ''}`,
+      message: [
+        `Client: ${client.companyName ?? client.name}`,
+        `Quotation No: ${client.quotationNumber ?? '—'}`,
+        `Amount: ${
+          quotation.quotationAmount != null
+            ? `₹${Number(quotation.quotationAmount).toLocaleString('en-IN')}`
+            : '—'
+        }`,
+        '',
+        'Commercial Details:',
+        quotation.quotationDetails || '—',
+        '',
+        'Billing Details:',
+        quotation.billingDetails || '—',
+        '',
+        `Status: ${
+          client.quotationApprovedAt
+            ? 'Approved'
+            : 'Pending Super Admin approval'
+        }`,
+        quotation.quotationApprovalNote
+          ? `Approval Note: ${quotation.quotationApprovalNote}`
+          : '',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    });
+  };
   const canEditClient = (
     client: Client,
   ) =>
     Boolean(workflowAccess?.canManageAll) ||
     (Boolean(workflowAccess?.canOnboard) &&
-      client.onboardingStage !== 'APPROVED');
+      (client.onboardingStage !== 'APPROVED' ||
+        Boolean(workflowAccess?.canManageApprovedClient)));
 
   return (
     <div className="mx-auto max-w-7xl">
@@ -668,25 +892,11 @@ export default function ClientsPage() {
             }
             className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm"
           >
-            <option value="">
-              All Onboarding Stages
-            </option>
-            <option value="DRAFT">Draft</option>
-            <option value="TERMS_SHARED">
-              T&C Shared
-            </option>
-            <option value="AWAITING_CLIENT_APPROVAL">
-              Awaiting Client Approval
-            </option>
-            <option value="APPROVED">
-              Approved · Accounts
-            </option>
-            <option value="REJECTED">
-              Not Approved
-            </option>
-            <option value="FOLLOW_UP">
-              Follow-up
-            </option>
+            <option value="">All Client Stages</option>
+            <option value="ONBOARDING">Onboarding</option>
+            <option value="CLIENT_APPROVAL">Client Approval</option>
+            <option value="UNAPPROVED">Unapproved</option>
+            <option value="QUOTATION">Quotation</option>
           </select>
         </div>
 
@@ -712,7 +922,7 @@ export default function ClientsPage() {
                     BDM Owner
                   </th>
                   <th className="px-5 py-4">
-                    Requirements
+                    Scope / Commitments
                   </th>
                   <th className="px-5 py-4">
                     Onboarding
@@ -722,6 +932,9 @@ export default function ClientsPage() {
                   </th>
                   <th className="px-5 py-4">
                     Manage
+                  </th>
+                  <th className="px-5 py-4">
+                    Payment Remark
                   </th>
                 </tr>
               </thead>
@@ -750,7 +963,7 @@ export default function ClientsPage() {
 
                     <td className="max-w-72 px-5 py-4">
                       <p className="line-clamp-3 text-xs leading-5 text-slate-600">
-                        {client.requirements ?? 'Requirements not added yet.'}
+                        {client.requirements ?? 'Scope / commitments not added yet.'}
                       </p>
                     </td>
 
@@ -773,6 +986,8 @@ export default function ClientsPage() {
                           canManageApproved={Boolean(
                             workflowAccess?.canManageApprovedClient,
                           )}
+                          isSuperAdmin={Boolean(workflowAccess?.isSuperAdmin)}
+                          isBusinessDevelopment={Boolean(workflowAccess?.isBusinessDevelopment)}
                           onMove={(stage) =>
                             void updateOnboarding(
                               client,
@@ -785,6 +1000,12 @@ export default function ClientsPage() {
                               action,
                             )
                           }
+                          onQuotationApproval={(action) =>
+                            void manageQuotationApproval(client, action)
+                          }
+                          onCommercialStage={(stage) =>
+                            void updateCommercialStage(client, stage)
+                          }
                         />
                       ) : (
                         <span className="text-xs text-slate-400">
@@ -794,7 +1015,37 @@ export default function ClientsPage() {
                     </td>
 
                     <td className="px-5 py-4">
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap gap-2">
+
+                        {workflowAccess?.canAccounts &&
+                          client.onboardingStage === 'APPROVED' &&
+                          client.accountsHandoverAt && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                window.location.href =
+                                  '/manager/dashboard#accounts-workflow';
+                              }}
+                              className="rounded-lg bg-slate-950 px-3 py-2 text-xs font-bold text-white hover:bg-slate-800"
+                            >
+                              {client.quotationNumber
+                                ? 'Revise Quotation'
+                                : 'Create Quotation'}
+                            </button>
+                          )}
+
+                        {workflowAccess?.isSuperAdmin &&
+                          client.accountsStage === 'QUOTATION_PREPARED' &&
+                          client.quotationNumber && (
+                            <button
+                              type="button"
+                              onClick={() => void viewQuotation(client)}
+                              className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-bold text-violet-700 hover:bg-violet-100"
+                            >
+                              View Quotation
+                            </button>
+                          )}
+
                         {canEditClient(client) && (
                           <button
                             type="button"
@@ -819,6 +1070,24 @@ export default function ClientsPage() {
                             className="rounded-lg border border-red-200 p-2 text-red-600 hover:bg-red-50"
                           >
                             <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+
+                    <td className="min-w-52 px-5 py-4">
+                      <div className="flex items-start gap-2">
+                        <p className="max-w-44 text-xs leading-5 text-slate-600">
+                          {client.paymentRemark || '—'}
+                        </p>
+                        {workflowAccess?.canManageApprovedClient && (
+                          <button
+                            type="button"
+                            disabled={saving}
+                            onClick={() => void updatePaymentRemark(client)}
+                            className="shrink-0 rounded-lg border border-slate-200 px-2 py-1 text-[11px] font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                          >
+                            Remark
                           </button>
                         )}
                       </div>
@@ -871,12 +1140,18 @@ function WorkflowActions({
   client,
   saving,
   canManageApproved,
+  isSuperAdmin,
+  isBusinessDevelopment,
   onMove,
   onManage,
+  onQuotationApproval,
+  onCommercialStage,
 }: {
   client: Client;
   saving: boolean;
   canManageApproved: boolean;
+  isSuperAdmin: boolean;
+  isBusinessDevelopment: boolean;
   onMove: (
     stage: Exclude<
       ClientOnboardingStage,
@@ -886,165 +1161,195 @@ function WorkflowActions({
   onManage: (
     action: 'APPROVE' | 'UNAPPROVE' | 'DISCUSS',
   ) => void;
+  onQuotationApproval: (
+    action: 'APPROVE' | 'UNAPPROVE',
+  ) => void;
+  onCommercialStage: (
+    stage:
+      | 'AWAITING_CLIENT_CONFIRMATION'
+      | 'READY_FOR_CLIENT_SERVICING'
+      | 'HANDED_TO_CLIENT_SERVICING',
+  ) => void;
 }) {
-  const common =
-    'inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-40';
+  type ActionValue =
+    | 'TERMS_SHARED'
+    | 'AWAITING_CLIENT_APPROVAL'
+    | 'APPROVED'
+    | 'REJECTED'
+    | 'FOLLOW_UP'
+    | 'MANAGE_APPROVE'
+    | 'MANAGE_UNAPPROVE'
+    | 'MANAGE_DISCUSS'
+    | 'QUOTATION_APPROVE'
+    | 'QUOTATION_UNAPPROVE'
+    | 'SEND_QUOTATION'
+    | 'CLIENT_CONFIRMED'
+    | 'HANDOVER_CLIENT_SERVICING';
 
-  const wasApprovedBefore = Boolean(client.accountsHandoverAt);
+  const options: Array<{
+    value: ActionValue;
+    label: string;
+  }> = [];
 
-  if (wasApprovedBefore && canManageApproved) {
-    return (
-      <div className="flex flex-wrap items-center gap-2">
-        {client.onboardingStage === 'APPROVED' ? (
-          <span className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-700">
-            <CheckCircle2 className="h-3.5 w-3.5" />
-            Approved
-          </span>
-        ) : (
-          <button
-            type="button"
-            disabled={saving}
-            onClick={() => onManage('APPROVE')}
-            className={`${common} border-emerald-200 bg-emerald-50 text-emerald-700`}
-          >
-            <CheckCircle2 className="h-3.5 w-3.5" />
-            Approve
-          </button>
-        )}
+  const readyForTerms = Boolean(
+    client.requirements && client.termsConditions,
+  );
 
-        {client.onboardingStage !== 'REJECTED' && (
-          <button
-            type="button"
-            disabled={saving}
-            onClick={() => onManage('UNAPPROVE')}
-            className={`${common} border-red-200 bg-red-50 text-red-700`}
-          >
-            Unapprove
-          </button>
-        )}
-
-        {client.onboardingStage !== 'FOLLOW_UP' && (
-          <button
-            type="button"
-            disabled={saving}
-            onClick={() => onManage('DISCUSS')}
-            className={`${common} border-amber-200 bg-amber-50 text-amber-700`}
-          >
-            Discuss
-          </button>
-        )}
-      </div>
-    );
-  }
-
-  if (client.onboardingStage === 'DRAFT') {
-    const ready = Boolean(
-      client.requirements &&
-        client.termsConditions,
-    );
-
-    return (
-      <button
-        type="button"
-        disabled={saving || !ready}
-        title={
-          ready
-            ? 'Mark Terms & Conditions as shared'
-            : 'Add Requirements and T&C first'
-        }
-        onClick={() => onMove('TERMS_SHARED')}
-        className={`${common} border-blue-200 bg-blue-50 text-blue-700`}
-      >
-        <Send className="h-3.5 w-3.5" />
-        T&C Shared
-      </button>
-    );
+  if (client.onboardingStage === 'DRAFT' && readyForTerms) {
+    options.push({ value: 'TERMS_SHARED', label: 'T&C Shared' });
   }
 
   if (client.onboardingStage === 'TERMS_SHARED') {
-    return (
-      <button
-        type="button"
-        disabled={saving}
-        onClick={() =>
-          onMove('AWAITING_CLIENT_APPROVAL')
-        }
-        className={`${common} border-amber-200 bg-amber-50 text-amber-700`}
-      >
-        <Clock3 className="h-3.5 w-3.5" />
-        Await Client Approval
-      </button>
-    );
+    options.push({
+      value: 'AWAITING_CLIENT_APPROVAL',
+      label: 'Send for Client Approval',
+    });
   }
 
-  if (
-    client.onboardingStage ===
-    'AWAITING_CLIENT_APPROVAL'
-  ) {
-    return (
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          disabled={saving}
-          onClick={() => onMove('APPROVED')}
-          className={`${common} border-emerald-200 bg-emerald-50 text-emerald-700`}
-        >
-          <CheckCircle2 className="h-3.5 w-3.5" />
-          Client Approved
-        </button>
-
-        <button
-          type="button"
-          disabled={saving}
-          onClick={() => onMove('REJECTED')}
-          className={`${common} border-red-200 bg-red-50 text-red-700`}
-        >
-          Not Approved
-        </button>
-      </div>
-    );
+  if (client.onboardingStage === 'AWAITING_CLIENT_APPROVAL') {
+    if (isSuperAdmin) {
+      options.push({ value: 'APPROVED', label: 'Final Approve Client' });
+    }
+    options.push({ value: 'REJECTED', label: 'Unapprove Client' });
+    options.push({ value: 'FOLLOW_UP', label: 'Discuss / Follow-up' });
   }
 
   if (client.onboardingStage === 'REJECTED') {
-    return (
-      <button
-        type="button"
-        disabled={saving}
-        onClick={() => onMove('FOLLOW_UP')}
-        className={`${common} border-amber-200 bg-amber-50 text-amber-700`}
-      >
-        <RotateCcw className="h-3.5 w-3.5" />
-        Move to Follow-up
-      </button>
-    );
+    options.push({ value: 'FOLLOW_UP', label: 'Move to Discussion' });
   }
 
-  if (client.onboardingStage === 'FOLLOW_UP') {
-    const ready = Boolean(
-      client.requirements &&
-        client.termsConditions,
-    );
+  if (client.onboardingStage === 'FOLLOW_UP' && readyForTerms) {
+    options.push({ value: 'TERMS_SHARED', label: 'Re-share T&C' });
+  }
 
+  if (client.accountsHandoverAt && canManageApproved) {
+    if (client.onboardingStage !== 'APPROVED' && isSuperAdmin) {
+      options.push({ value: 'MANAGE_APPROVE', label: 'Approve Client' });
+    }
+    if (client.onboardingStage !== 'REJECTED') {
+      options.push({ value: 'MANAGE_UNAPPROVE', label: 'Unapprove Client' });
+    }
+    if (client.onboardingStage !== 'FOLLOW_UP') {
+      options.push({ value: 'MANAGE_DISCUSS', label: 'Discuss Client' });
+    }
+  }
+
+  if (
+    client.accountsStage === 'QUOTATION_PREPARED' &&
+    isSuperAdmin
+  ) {
+    if (!client.quotationApprovedAt) {
+      options.push({
+        value: 'QUOTATION_APPROVE',
+        label: 'Approve Quotation',
+      });
+    }
+
+    options.push({
+      value: 'QUOTATION_UNAPPROVE',
+      label: 'Request Changes',
+    });
+  }
+
+  const canHandleCommercial = isBusinessDevelopment || isSuperAdmin;
+
+  if (
+    canHandleCommercial &&
+    client.accountsStage === 'QUOTATION_PREPARED' &&
+    client.quotationApprovedAt
+  ) {
+    options.push({ value: 'SEND_QUOTATION', label: 'Quotation Sent to Client' });
+  }
+
+  if (
+    canHandleCommercial &&
+    client.accountsStage === 'AWAITING_CLIENT_CONFIRMATION'
+  ) {
+    options.push({ value: 'CLIENT_CONFIRMED', label: 'Client Confirmed' });
+  }
+
+  if (
+    canHandleCommercial &&
+    client.accountsStage === 'READY_FOR_CLIENT_SERVICING'
+  ) {
+    options.push({
+      value: 'HANDOVER_CLIENT_SERVICING',
+      label: 'Hand Over to Client Servicing',
+    });
+  }
+
+  const statusLabel = client.accountsStage
+    ? client.accountsStage === 'QUOTATION_PREPARED'
+      ? client.quotationApprovedAt
+        ? 'Quotation Approved'
+        : 'Quotation Pending Approval'
+      : client.accountsStage === 'AWAITING_CLIENT_CONFIRMATION'
+        ? 'Awaiting Client Confirmation'
+        : client.accountsStage === 'READY_FOR_CLIENT_SERVICING'
+          ? 'Ready for Client Servicing'
+          : client.accountsStage === 'HANDED_TO_CLIENT_SERVICING'
+            ? 'Handed to Client Servicing'
+            : 'Accounts Handover'
+    : client.onboardingStage === 'AWAITING_CLIENT_APPROVAL'
+      ? 'Client Approval Pending'
+      : client.onboardingStage.replaceAll('_', ' ');
+
+  if (!options.length) {
     return (
-      <button
-        type="button"
-        disabled={saving || !ready}
-        onClick={() => onMove('TERMS_SHARED')}
-        className={`${common} border-blue-200 bg-blue-50 text-blue-700`}
-      >
-        <Send className="h-3.5 w-3.5" />
-        Re-share T&C
-      </button>
+      <span className="inline-flex rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-semibold text-slate-600">
+        {statusLabel}
+      </span>
     );
   }
 
   return (
-    <div className="inline-flex items-center gap-2 text-xs font-semibold text-emerald-700">
-      <CheckCircle2 className="h-4 w-4" />
-      Approved · Handed to Accounts
-    </div>
+    <select
+      defaultValue=""
+      disabled={saving}
+      onChange={(event) => {
+        const action = event.target.value as ActionValue;
+        event.currentTarget.value = '';
+
+        if (!action) return;
+
+        if (
+          action === 'TERMS_SHARED' ||
+          action === 'AWAITING_CLIENT_APPROVAL' ||
+          action === 'APPROVED' ||
+          action === 'REJECTED' ||
+          action === 'FOLLOW_UP'
+        ) {
+          onMove(action);
+          return;
+        }
+
+        if (action === 'MANAGE_APPROVE') onManage('APPROVE');
+        if (action === 'MANAGE_UNAPPROVE') onManage('UNAPPROVE');
+        if (action === 'MANAGE_DISCUSS') onManage('DISCUSS');
+        if (action === 'QUOTATION_APPROVE') onQuotationApproval('APPROVE');
+        if (action === 'QUOTATION_UNAPPROVE') onQuotationApproval('UNAPPROVE');
+        if (action === 'SEND_QUOTATION') {
+          onCommercialStage('AWAITING_CLIENT_CONFIRMATION');
+        }
+        if (action === 'CLIENT_CONFIRMED') {
+          onCommercialStage('READY_FOR_CLIENT_SERVICING');
+        }
+        if (action === 'HANDOVER_CLIENT_SERVICING') {
+          onCommercialStage('HANDED_TO_CLIENT_SERVICING');
+        }
+      }}
+      className="min-w-48 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-700 outline-none hover:bg-slate-50 disabled:opacity-50"
+    >
+      <option value="">Manage · {statusLabel}</option>
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
   );
 }
+
 
 function ClientForm({
   client,
@@ -1092,11 +1397,15 @@ function ClientForm({
       <div className="sm:col-span-2">
         <Textarea
           name="requirements"
-          label="Client Requirements"
-          helper="Discussed scope and expectations"
+          label="Client Scope of Work / Commitments"
+          helper="Main agreed scope, commitments and client expectations"
           rows={2}
           defaultValue={client?.requirements ?? ''}
         />
+      </div>
+
+      <div className="sm:col-span-2">
+        <ScopeCommitmentsEditor value={client?.scopeCommitments ?? null} />
       </div>
 
       <details className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50/60">
@@ -1129,6 +1438,18 @@ function ClientForm({
               defaultValue={client?.termsConditions ?? ''}
             />
           </div>
+
+          {client && (
+            <div className="sm:col-span-2">
+              <Textarea
+                name="paymentRemark"
+                label="Payment Remark"
+                helper="Payment status / follow-up note"
+                rows={2}
+                defaultValue={client.paymentRemark ?? ''}
+              />
+            </div>
+          )}
         </div>
       </details>
 
@@ -1141,13 +1462,158 @@ function ClientForm({
             <Loader2 className="h-4 w-4 animate-spin" />
           )}
           {client
-            ? 'Save Onboarding Details'
+            ? 'Save Client Details'
             : 'Create Client Draft'}
         </button>
       </div>
     </form>
   );
 }
+
+function ScopeCommitmentsEditor({
+  value,
+}: {
+  value: ScopeCommitments | null;
+}) {
+  const initialColumns =
+    value?.columns?.length
+      ? value.columns
+      : ['Particular / Description', 'Sub Description'];
+
+  const initialRows =
+    value?.rows?.length
+      ? value.rows.map((row) => [
+          ...row,
+          ...Array(Math.max(0, initialColumns.length - row.length)).fill(''),
+        ].slice(0, initialColumns.length))
+      : Array.from({ length: 3 }, () =>
+          Array(initialColumns.length).fill(''),
+        );
+
+  const [columns, setColumns] = useState<string[]>(initialColumns);
+  const [rows, setRows] = useState<string[][]>(initialRows);
+
+  const updateColumn = (index: number, label: string) => {
+    setColumns((current) =>
+      current.map((column, columnIndex) =>
+        columnIndex === index ? label : column,
+      ),
+    );
+  };
+
+  const updateCell = (rowIndex: number, columnIndex: number, value: string) => {
+    setRows((current) =>
+      current.map((row, currentRowIndex) =>
+        currentRowIndex === rowIndex
+          ? row.map((cell, currentColumnIndex) =>
+              currentColumnIndex === columnIndex ? value : cell,
+            )
+          : row,
+      ),
+    );
+  };
+
+  const addRow = () => {
+    setRows((current) => [
+      ...current,
+      Array(columns.length).fill(''),
+    ]);
+  };
+
+  const addColumn = () => {
+    const nextLabel = `Additional ${columns.length - 1}`;
+    setColumns((current) => [...current, nextLabel]);
+    setRows((current) => current.map((row) => [...row, '']));
+  };
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-3">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-sm font-bold text-slate-800">
+            Scope / Commitment Table
+          </p>
+          <p className="mt-0.5 text-[11px] text-slate-400">
+            Starts with 3 rows. Add rows or columns whenever needed.
+          </p>
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={addRow}
+            className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
+          >
+            + Add New Row
+          </button>
+          <button
+            type="button"
+            onClick={addColumn}
+            className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-bold text-slate-700 hover:bg-slate-50"
+          >
+            + Add Column
+          </button>
+        </div>
+      </div>
+
+      <input
+        type="hidden"
+        name="scopeCommitmentsJson"
+        value={JSON.stringify({ columns, rows })}
+        readOnly
+      />
+
+      <div className="overflow-x-auto">
+        <table className="min-w-full border-separate border-spacing-0 text-xs">
+          <thead>
+            <tr>
+              <th className="w-14 border border-slate-200 bg-slate-50 px-2 py-2 text-left font-bold text-slate-600">
+                Sr.
+              </th>
+              {columns.map((column, index) => (
+                <th
+                  key={`scope-head-${index}`}
+                  className="min-w-52 border border-l-0 border-slate-200 bg-slate-50 p-1.5"
+                >
+                  <input
+                    value={column}
+                    onChange={(event) => updateColumn(index, event.target.value)}
+                    aria-label={`Scope column ${index + 1}`}
+                    className="w-full bg-transparent px-1 py-1 font-bold text-slate-600 outline-none"
+                  />
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, rowIndex) => (
+              <tr key={`scope-row-${rowIndex}`}>
+                <td className="border border-t-0 border-slate-200 px-2 py-2 font-bold text-slate-500">
+                  {rowIndex + 1}
+                </td>
+                {columns.map((_, columnIndex) => (
+                  <td
+                    key={`scope-cell-${rowIndex}-${columnIndex}`}
+                    className="border border-l-0 border-t-0 border-slate-200 p-1.5"
+                  >
+                    <input
+                      value={row[columnIndex] ?? ''}
+                      onChange={(event) =>
+                        updateCell(rowIndex, columnIndex, event.target.value)
+                      }
+                      className="w-full min-w-44 rounded-md border-0 px-1.5 py-1.5 text-xs outline-none focus:bg-slate-50"
+                    />
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 
 function ModalBox({
   title,

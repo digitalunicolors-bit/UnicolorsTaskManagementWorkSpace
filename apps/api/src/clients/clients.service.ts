@@ -22,6 +22,7 @@ import { UpdateClientDto } from './dto/update-client.dto';
 import { UpdateClientAccountsDto } from './dto/update-client-accounts.dto';
 import { UpdateClientOnboardingDto } from './dto/update-client-onboarding.dto';
 import { ManageClientApprovalDto } from './dto/manage-client-approval.dto';
+import { ManageQuotationApprovalDto } from './dto/manage-quotation-approval.dto';
 import { ClientQueryDto } from './dto/client-query.dto';
 
 import { CreateClientContactDto } from './dto/create-client-contact.dto';
@@ -40,6 +41,7 @@ type ResolvedClientWorkflowAccess = {
   isBusinessDevelopment: boolean;
   isAccounts: boolean;
   isClientServicing: boolean;
+  isSuperAdmin: boolean;
   canOnboard: boolean;
   canAccounts: boolean;
   canClientServicing: boolean;
@@ -113,8 +115,9 @@ export class ClientsService {
     access: ClientWorkflowAccessContext,
   ): Promise<ResolvedClientWorkflowAccess> {
     const roles = access.roles ?? [];
+    const isSuperAdmin = roles.includes('SUPER_ADMIN');
     const canManageAll =
-      roles.includes('SUPER_ADMIN') ||
+      isSuperAdmin ||
       roles.includes('ADMIN');
 
     const employee = access.userId
@@ -205,6 +208,7 @@ export class ClientsService {
       isBusinessDevelopment,
       isAccounts,
       isClientServicing,
+      isSuperAdmin,
       canOnboard: canManageAll || isBusinessDevelopment,
       canAccounts: canManageAll || isAccounts,
       canClientServicing: canManageAll || isClientServicing,
@@ -398,6 +402,24 @@ export class ClientsService {
     if (query.onboardingStage) {
       where.onboardingStage =
         query.onboardingStage as ClientOnboardingStage;
+    }
+
+    if (query.workflowStage === 'ONBOARDING') {
+      where.onboardingStage = {
+        in: [
+          ClientOnboardingStage.DRAFT,
+          ClientOnboardingStage.TERMS_SHARED,
+          ClientOnboardingStage.FOLLOW_UP,
+        ],
+      };
+    } else if (query.workflowStage === 'CLIENT_APPROVAL') {
+      where.onboardingStage =
+        ClientOnboardingStage.AWAITING_CLIENT_APPROVAL;
+    } else if (query.workflowStage === 'UNAPPROVED') {
+      where.onboardingStage = ClientOnboardingStage.REJECTED;
+    } else if (query.workflowStage === 'QUOTATION') {
+      where.onboardingStage = ClientOnboardingStage.APPROVED;
+      where.accountsStage = { not: null };
     }
 
     if (query.accountManagerId) {
@@ -718,6 +740,12 @@ export class ClientsService {
           requirements:
             this.clean(dto.requirements),
 
+          scopeCommitments:
+            dto.scopeCommitments as any,
+
+          paymentRemark:
+            this.clean(dto.paymentRemark),
+
           termsConditions:
             this.clean(dto.termsConditions),
 
@@ -742,12 +770,12 @@ export class ClientsService {
     const current = await this.findOne(id);
 
     if (
-      !workflowAccess.canManageAll &&
+      !workflowAccess.canManageApprovedClient &&
       current.onboardingStage ===
         ClientOnboardingStage.APPROVED
     ) {
       throw new ForbiddenException(
-        'Approved clients are locked for Business Development. Accounts handover has already started.',
+        'You are not allowed to manage this approved client.',
       );
     }
 
@@ -857,6 +885,14 @@ export class ClientsService {
         ...(dto.requirements !== undefined && {
           requirements:
             this.clean(dto.requirements),
+        }),
+
+        ...(dto.scopeCommitments !== undefined && {
+          scopeCommitments: dto.scopeCommitments as any,
+        }),
+
+        ...(dto.paymentRemark !== undefined && {
+          paymentRemark: this.clean(dto.paymentRemark),
         }),
 
         ...(dto.termsConditions !== undefined && {
@@ -1279,6 +1315,26 @@ export class ClientsService {
     };
   }
 
+  private async superAdminUserIds() {
+    const users = await this.prisma.user.findMany({
+      where: {
+        isActive: true,
+        deletedAt: null,
+        roles: {
+          some: {
+            role: {
+              name: 'SUPER_ADMIN',
+              isActive: true,
+            },
+          },
+        },
+      },
+      select: { id: true },
+    });
+
+    return users.map((user) => user.id);
+  }
+
   async updateOnboarding(
     id: string,
     dto: UpdateClientOnboardingDto,
@@ -1301,6 +1357,15 @@ export class ClientsService {
 
     const nextStage =
       dto.stage as ClientOnboardingStage;
+
+    if (
+      nextStage === ClientOnboardingStage.APPROVED &&
+      !workflowAccess.isSuperAdmin
+    ) {
+      throw new ForbiddenException(
+        'Final client approval can be completed only by Super Admin.',
+      );
+    }
 
     this.assertOnboardingTransition(
       client.onboardingStage,
@@ -1441,6 +1506,12 @@ export class ClientsService {
     if (!workflowAccess.canManageApprovedClient) {
       throw new ForbiddenException(
         'Only Super Admin or Business Development can manage an approved client.',
+      );
+    }
+
+    if (dto.action === 'APPROVE' && !workflowAccess.isSuperAdmin) {
+      throw new ForbiddenException(
+        'Final client approval can be completed only by Super Admin.',
       );
     }
 
@@ -1863,7 +1934,11 @@ export class ClientsService {
           id: true,
           name: true,
           companyName: true,
+          email: true,
+          phone: true,
           requirements: true,
+          primaryContacts: true,
+          deliverables: true,
           clientServicingHandoverAt: true,
           projects: {
             where: {
@@ -1910,7 +1985,11 @@ export class ClientsService {
           id: client.id,
           name: client.name,
           companyName: client.companyName,
+          email: client.email,
+          phone: client.phone,
           requirements: client.requirements,
+          primaryContacts: client.primaryContacts,
+          deliverables: client.deliverables,
           clientServicingHandoverAt:
             client.clientServicingHandoverAt,
           hasProject: Boolean(latestProject),
@@ -1944,6 +2023,7 @@ export class ClientsService {
         ClientAccountsStage.QUOTATION_PREPARED,
       ],
       [ClientAccountsStage.QUOTATION_PREPARED]: [
+        ClientAccountsStage.QUOTATION_PREPARED,
         ClientAccountsStage.AWAITING_CLIENT_CONFIRMATION,
       ],
       [ClientAccountsStage.AWAITING_CLIENT_CONFIRMATION]: [
@@ -2177,13 +2257,143 @@ export class ClientsService {
     }
   }
 
+  async manageQuotationApproval(
+    id: string,
+    dto: ManageQuotationApprovalDto,
+    access: ClientWorkflowAccessContext,
+  ) {
+    const workflowAccess = await this.resolveWorkflowAccess(access);
+
+    if (!workflowAccess.isSuperAdmin) {
+      throw new ForbiddenException(
+        'Quotation approval can be completed only by Super Admin.',
+      );
+    }
+
+    const client = await this.findOne(id);
+
+    if (
+      client.accountsStage !== ClientAccountsStage.QUOTATION_PREPARED &&
+      client.accountsStage !== ClientAccountsStage.AWAITING_CLIENT_CONFIRMATION
+    ) {
+      throw new BadRequestException(
+        'Prepare the quotation before approval.',
+      );
+    }
+
+    if (!client.quotationNumber) {
+      throw new BadRequestException('Quotation number is required.');
+    }
+
+    const note = this.clean(dto.note);
+
+    if (dto.action === 'UNAPPROVE' && !note) {
+      throw new BadRequestException(
+        'Add a reason for the quotation changes.',
+      );
+    }
+
+    const now = new Date();
+
+    const notificationUserIds = new Set<string>();
+
+    if (dto.action === 'APPROVE' && client.accountManagerId) {
+      const accountManager = await this.prisma.employeeProfile.findFirst({
+        where: {
+          id: client.accountManagerId,
+          deletedAt: null,
+          user: {
+            isActive: true,
+            deletedAt: null,
+          },
+        },
+        select: { userId: true },
+      });
+
+      if (accountManager?.userId) {
+        notificationUserIds.add(accountManager.userId);
+      }
+    }
+
+    if (dto.action === 'UNAPPROVE') {
+      const accounts = await this.accountsRecipients();
+      accounts.userIds.forEach((userId) => notificationUserIds.add(userId));
+    }
+
+    if (workflowAccess.userId) {
+      notificationUserIds.delete(workflowAccess.userId);
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.client.update({
+        where: { id },
+        data: dto.action === 'APPROVE'
+          ? {
+              quotationApprovedAt: now,
+              quotationApprovedById: workflowAccess.userId,
+              quotationApprovalNote: note,
+            }
+          : {
+              quotationApprovedAt: null,
+              quotationApprovedById: null,
+              quotationApprovalNote: note,
+              accountsStage: ClientAccountsStage.QUOTATION_PREPARED,
+              quotationSentAt: null,
+              clientCommercialConfirmedAt: null,
+              clientServicingHandoverAt: null,
+            },
+      });
+
+      await tx.activityLog.create({
+        data: {
+          userId: workflowAccess.userId,
+          action: dto.action === 'APPROVE'
+            ? 'QUOTATION_APPROVED'
+            : 'QUOTATION_UNAPPROVED',
+          entityType: 'CLIENT',
+          entityId: id,
+          previousValue: {
+            quotationApprovedAt: client.quotationApprovedAt,
+          },
+          newValue: {
+            quotationApprovedAt: dto.action === 'APPROVE' ? now : null,
+            note,
+          },
+        },
+      });
+
+      if (notificationUserIds.size) {
+        await tx.notification.createMany({
+          data: Array.from(notificationUserIds).map((userId) => ({
+            userId,
+            actorId: workflowAccess.userId,
+            kind: NotificationKind.USER_MENTIONED,
+            title:
+              dto.action === 'APPROVE'
+                ? 'Quotation approved · Ready to send'
+                : 'Quotation changes required',
+            message:
+              dto.action === 'APPROVE'
+                ? `${client.companyName ?? client.name} quotation has been approved by Super Admin. BDM can now send it to the client.`
+                : `${client.companyName ?? client.name} quotation requires changes. Please revise and submit it again.`,
+            entityType: 'CLIENT',
+            entityId: id,
+            redirectPath: '/clients?workflowStage=QUOTATION',
+          })),
+        });
+      }
+    });
+
+    return this.findOne(id);
+  }
+
   async updateAccounts(
     id: string,
     dto: UpdateClientAccountsDto,
     access: ClientWorkflowAccessContext,
   ) {
     const workflowAccess =
-      await this.requireAccountsAccess(access);
+      await this.resolveWorkflowAccess(access);
 
     const client = await this.findOne(id);
 
@@ -2193,7 +2403,7 @@ export class ClientsService {
       !client.accountsHandoverAt
     ) {
       throw new BadRequestException(
-        'Client must be approved by Business Development before Accounts processing can start.',
+        'Client must receive final Super Admin approval before Accounts processing can start.',
       );
     }
 
@@ -2204,14 +2414,50 @@ export class ClientsService {
     const nextStage =
       dto.stage as ClientAccountsStage;
 
+    const canPrepareQuotation =
+      workflowAccess.canAccounts || workflowAccess.canManageAll;
+    const canHandleClientCommercial =
+      workflowAccess.isBusinessDevelopment || workflowAccess.canManageAll;
+
+    if (
+      nextStage === ClientAccountsStage.QUOTATION_PREPARED &&
+      !canPrepareQuotation
+    ) {
+      throw new ForbiddenException(
+        'Only Accounts & Quotation can prepare or revise a quotation.',
+      );
+    }
+
+    if (
+      nextStage !== ClientAccountsStage.QUOTATION_PREPARED &&
+      !canHandleClientCommercial
+    ) {
+      throw new ForbiddenException(
+        'Only Business Development or Super Admin can send the quotation and confirm the client.',
+      );
+    }
+
     this.assertAccountsTransition(
       currentStage,
       nextStage,
     );
 
-    const quotationNumber =
-      this.clean(dto.quotationNumber) ??
-      client.quotationNumber;
+    let quotationNumber = client.quotationNumber;
+
+    if (!quotationNumber) {
+      const year = new Date().getFullYear();
+
+      const quotationCount = await this.prisma.client.count({
+        where: {
+          quotationNumber: {
+            not: null,
+          },
+        },
+      });
+
+      quotationNumber =
+        `UCPL-Q-${year}-${String(quotationCount + 1).padStart(4, '0')}`;
+    }
 
     const quotationAmount =
       dto.quotationAmount ??
@@ -2245,6 +2491,15 @@ export class ClientsService {
       );
     }
 
+    if (
+      nextStage === ClientAccountsStage.AWAITING_CLIENT_CONFIRMATION &&
+      !client.quotationApprovedAt
+    ) {
+      throw new BadRequestException(
+        'Super Admin must approve the quotation before Business Development sends it to the client.',
+      );
+    }
+
     const now = new Date();
     let clientServicing:
       | {
@@ -2265,6 +2520,13 @@ export class ClientsService {
         await this.clientServicingRecipients();
     }
 
+    const quotationApprovalRecipients =
+      nextStage === ClientAccountsStage.QUOTATION_PREPARED
+        ? (await this.superAdminUserIds()).filter(
+            (userId) => userId !== workflowAccess.userId,
+          )
+        : [];
+
     await this.prisma.$transaction(async (tx) => {
       await tx.client.update({
         where: {
@@ -2280,6 +2542,10 @@ export class ClientsService {
           ...(nextStage ===
             ClientAccountsStage.QUOTATION_PREPARED && {
             quotationPreparedAt: now,
+            quotationApprovedAt: null,
+            quotationApprovedById: null,
+            quotationApprovalNote: null,
+            quotationSentAt: null,
           }),
 
           ...(nextStage ===
@@ -2301,6 +2567,33 @@ export class ClientsService {
           }),
         },
       });
+
+      await tx.activityLog.create({
+        data: {
+          userId: workflowAccess.userId,
+          action: 'CLIENT_UPDATED',
+          entityType: 'CLIENT',
+          entityId: id,
+          previousValue: { stage: currentStage },
+          newValue: { stage: nextStage },
+          metadata: { source: 'CLIENT_ACCOUNTS_WORKFLOW' },
+        },
+      });
+
+      if (quotationApprovalRecipients.length) {
+        await tx.notification.createMany({
+          data: quotationApprovalRecipients.map((userId) => ({
+            userId,
+            actorId: workflowAccess.userId,
+            kind: NotificationKind.USER_MENTIONED,
+            title: 'Quotation ready for approval',
+            message: `${client.companyName ?? client.name} quotation ${quotationNumber ?? ''} is ready for Super Admin approval.`,
+            entityType: 'CLIENT',
+            entityId: id,
+            redirectPath: '/clients?workflowStage=QUOTATION',
+          })),
+        });
+      }
 
       if (
         clientServicing &&

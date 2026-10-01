@@ -65,7 +65,11 @@ interface Client {
   id: string;
   name: string;
   companyName: string | null;
+  email?: string | null;
+  phone?: string | null;
   requirements?: string | null;
+  primaryContacts?: string[];
+  deliverables?: string[];
 }
 
 interface Employee {
@@ -110,6 +114,7 @@ interface Project {
 
   startDate: string | null;
   deadline: string | null;
+  isRecurring?: boolean;
 
   priority: Priority;
   status: ProjectStatus;
@@ -171,12 +176,7 @@ interface ClientWorkflowAccess {
 }
 
 interface ClientServicingDashboardResponse {
-  recentHandovers: Array<{
-    id: string;
-    name: string;
-    companyName: string | null;
-    requirements: string | null;
-  }>;
+  recentHandovers: Client[];
 }
 
 type ModalType =
@@ -329,7 +329,7 @@ export default function ProjectsPage() {
   const canCreateProject =
     canFullProjectManage;
 
-  const managedDepartmentIds = new Set(
+  const managedDepartmentIds = new Set<string>(
     (workflowAccess?.managedDepartments ?? [])
       .filter((department) => !isWorkflowDepartmentName(department.name))
       .map((department) => department.id),
@@ -484,11 +484,11 @@ export default function ProjectsPage() {
           ),
         ]);
 
-        const clientOptions =
-          'recentHandovers' in
+        const clientOptions: Client[] =
+          ('recentHandovers' in
           clientOptionsResponse
             ? clientOptionsResponse.recentHandovers
-            : clientOptionsResponse.data;
+            : clientOptionsResponse.data) as Client[];
 
         setClients(
           clientOptions.map(
@@ -500,6 +500,18 @@ export default function ProjectsPage() {
               requirements:
                 client.requirements ??
                 null,
+              email:
+                client.email ??
+                null,
+              phone:
+                client.phone ??
+                null,
+              primaryContacts:
+                client.primaryContacts ??
+                [],
+              deliverables:
+                client.deliverables ??
+                [],
             }),
           ),
         );
@@ -746,6 +758,9 @@ export default function ProjectsPage() {
                 ) ||
                 undefined,
 
+              isRecurring:
+                String(form.get('isRecurring') ?? 'false') === 'true',
+
               description:
                 String(
                   form.get(
@@ -957,6 +972,9 @@ export default function ProjectsPage() {
                   ) ?? '',
                 ),
 
+              isRecurring:
+                String(form.get('isRecurring') ?? 'false') === 'true',
+
               description:
                 String(
                   form.get(
@@ -1160,7 +1178,6 @@ export default function ProjectsPage() {
             projects={displayedProjects}
             canFullManage={canFullProjectManage}
             managedDepartmentIds={Array.from(managedDepartmentIds)}
-            hideProgress={clientServicingMode}
             onView={(project) => {
               setSelectedProject(project);
               setModal('view');
@@ -1339,7 +1356,6 @@ function ProjectsTable({
   projects,
   canFullManage,
   managedDepartmentIds,
-  hideProgress,
   onView,
   onEdit,
   onMembers,
@@ -1349,7 +1365,6 @@ function ProjectsTable({
   projects: Project[];
   canFullManage: boolean;
   managedDepartmentIds: string[];
-  hideProgress: boolean;
   onView: (project: Project) => void;
   onEdit: (project: Project) => void;
   onMembers: (project: Project) => void;
@@ -1409,7 +1424,6 @@ function ProjectsTable({
             <th className="px-5 py-4">Client</th>
             <th className="px-5 py-4">Manager</th>
             <th className="px-5 py-4">Deadline</th>
-            {!hideProgress && <th className="px-5 py-4">Progress</th>}
             <th className="px-5 py-4">Status</th>
             <th className="px-5 py-4">Action</th>
             {showActions && (
@@ -1453,28 +1467,6 @@ function ProjectsTable({
               <td className="px-5 py-4">
                 {formatDate(project.deadline)}
               </td>
-
-              {!hideProgress && (
-                <td className="min-w-40 px-5 py-4">
-                  <div className="mb-1 flex justify-between text-xs">
-                    <span>Progress</span>
-                    <span className="font-semibold">
-                      {project.progress}%
-                    </span>
-                  </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-                    <div
-                      className="h-full rounded-full bg-slate-900"
-                      style={{
-                        width: `${Math.min(
-                          Math.max(project.progress ?? 0, 0),
-                          100,
-                        )}%`,
-                      }}
-                    />
-                  </div>
-                </td>
-              )}
 
               <td className="px-5 py-4">
                 <ProjectStatusBadge status={project.status} />
@@ -1812,14 +1804,16 @@ function ProjectForm({
         ? [project.departmentId]
         : [];
 
-  const initialClient =
-    project?.client ??
-    clients.find(
-      (client) =>
-        client.id ===
-        initialClientId,
-    ) ??
-    null;
+  const [selectedClientId, setSelectedClientId] = useState(
+    project?.clientId ?? initialClientId,
+  );
+
+  const selectedClient =
+    project?.client?.id === selectedClientId
+      ? project.client
+      : clients.find((client) => client.id === selectedClientId) ??
+        project?.client ??
+        null;
 
   return (
     <form
@@ -1832,7 +1826,25 @@ function ProjectForm({
         initialClientId={
           initialClientId
         }
+        onClientChange={setSelectedClientId}
       />
+
+      {selectedClient && (
+        <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2 text-xs text-slate-600">
+          <p className="font-bold text-slate-800">
+            {selectedClient.companyName ?? selectedClient.name}
+          </p>
+          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+            {selectedClient.phone && <span>{selectedClient.phone}</span>}
+            {selectedClient.email && <span>{selectedClient.email}</span>}
+          </div>
+          {selectedClient.requirements && (
+            <p className="mt-1 line-clamp-2">
+              Scope: {selectedClient.requirements}
+            </p>
+          )}
+        </div>
+      )}
 
       <Input
         name="name"
@@ -1870,13 +1882,28 @@ function ProjectForm({
         }
       />
 
+      <label className="block">
+        <span className="mb-1.5 block text-sm font-medium text-slate-700">
+          Recurring Task
+        </span>
+        <select
+          name="isRecurring"
+          defaultValue={project?.isRecurring ? 'true' : 'false'}
+          className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm outline-none focus:border-slate-400"
+        >
+          <option value="false">No</option>
+          <option value="true">Yes</option>
+        </select>
+      </label>
+
       <div className="sm:col-span-2">
         <Textarea
+          key={`project-brief-${selectedClientId}`}
           name="brief"
           label="Requirement / Brief"
           defaultValue={
             project?.description ??
-            initialClient?.requirements ??
+            selectedClient?.requirements ??
             ''
           }
         />
@@ -1941,10 +1968,12 @@ function ClientTypeahead({
   clients,
   project,
   initialClientId = '',
+  onClientChange,
 }: {
   clients: Client[];
   project?: Project;
   initialClientId?: string;
+  onClientChange?: (clientId: string) => void;
 }) {
   const initialClient =
     project?.client ??
@@ -1989,9 +2018,9 @@ function ClientTypeahead({
       ) ?? null;
 
     setClientText(value);
-    setClientId(
-      match?.id ?? '',
-    );
+    const nextId = match?.id ?? '';
+    setClientId(nextId);
+    onClientChange?.(nextId);
   };
 
   return (

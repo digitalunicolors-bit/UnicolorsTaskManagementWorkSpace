@@ -15,13 +15,7 @@ export class UpdateClientAccountsDto {
     'HANDED_TO_CLIENT_SERVICING',
   ])
   stage!: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(120)
-  quotationNumber?: string;
-
-  @IsOptional()
+@IsOptional()
   @IsNumber()
   @Min(0)
   quotationAmount?: number;

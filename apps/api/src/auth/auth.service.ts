@@ -365,6 +365,7 @@ export class AuthService {
           sub: user.id,
           type: 'refresh',
           familyId,
+          jti: randomUUID(),
         },
         {
           secret: refreshSecret,
@@ -589,6 +590,7 @@ export class AuthService {
         sub: user.id,
         type: 'refresh',
         familyId: payload.familyId,
+        jti: randomUUID(),
       },
       {
         secret: refreshSecret,
