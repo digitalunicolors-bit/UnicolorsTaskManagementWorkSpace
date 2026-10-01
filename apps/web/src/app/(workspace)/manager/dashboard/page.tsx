@@ -63,6 +63,11 @@ type ClientAccountsStage =
   | 'READY_FOR_CLIENT_SERVICING'
   | 'HANDED_TO_CLIENT_SERVICING';
 
+type ScopeCommitments = {
+  columns: string[];
+  rows: string[][];
+};
+
 type BdmClient = {
   id: string;
   name: string;
@@ -91,7 +96,14 @@ type AccountsClient = {
   id: string;
   name: string;
   companyName: string | null;
+  email?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  primaryContacts?: string[];
+  deliverables?: string[];
   requirements: string | null;
+  scopeCommitments?: ScopeCommitments | null;
+  paymentRemark?: string | null;
   accountsStage: ClientAccountsStage | null;
   accountsHandoverAt: string | null;
   quotationNumber: string | null;
@@ -99,6 +111,8 @@ type AccountsClient = {
   quotationDetails: string | null;
   billingDetails: string | null;
   quotationPreparedAt: string | null;
+  quotationApprovedAt?: string | null;
+  quotationApprovalNote?: string | null;
   quotationSentAt: string | null;
   clientCommercialConfirmedAt: string | null;
   clientServicingHandoverAt: string | null;
@@ -374,7 +388,7 @@ export default function ManagerDashboardPage() {
     const rawAmount = String(form.get('quotationAmount') ?? '').replace(/,/g, '').trim();
     const amount = rawAmount ? Number(rawAmount) : undefined;
     await updateAccountsStage(quotationClient, 'QUOTATION_PREPARED', {
-      quotationNumber: String(form.get('quotationNumber') ?? '').trim(),
+
       quotationAmount: amount,
       quotationDetails: String(form.get('quotationDetails') ?? '').trim() || undefined,
       billingDetails: String(form.get('billingDetails') ?? '').trim() || undefined,
@@ -492,7 +506,7 @@ function AccountsSection({
       )}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <MetricCard label="Pending Quotations" value={data.pendingQuotations} icon={BadgeIndianRupee} href="#accounts-workflow" />
-        <MetricCard label="Total Quotations" subtitle={data.quotationPreparedByName ?? undefined} value={data.totalQuotations ?? data.quotationPrepared} icon={FileCheck2} href="#accounts-workflow" />
+        <MetricCard label="Total Quotations" subtitle={data.quotationPreparedByName ?? undefined} value={data.totalQuotations ?? data.quotationPrepared} icon={FileCheck2} href="/clients?workflowStage=QUOTATION" />
         <MetricCard label="Awaiting Client Confirmation" value={data.awaitingClientConfirmation} icon={Clock3} href="#accounts-workflow" />
         <MetricCard label="Ready for Client Servicing" value={data.readyForClientServicing} icon={CheckCircle2} href="#accounts-workflow" />
       </div>
@@ -562,7 +576,7 @@ function ClientServicingTable({
         <thead className="bg-slate-50">
           <tr>
             <th className="px-6 py-3 text-left font-semibold text-slate-600">Client</th>
-            <th className="px-6 py-3 text-left font-semibold text-slate-600">Requirement / Brief</th>
+            <th className="px-6 py-3 text-left font-semibold text-slate-600">Scope / Commitments</th>
             <th className="px-6 py-3 text-left font-semibold text-slate-600">Received</th>
             <th className="px-6 py-3 text-left font-semibold text-slate-600">Project</th>
             <th className="px-6 py-3 text-right font-semibold text-slate-600">Action</th>
@@ -651,17 +665,31 @@ function MetricCard({ label, value, icon: Icon, href, subtitle }: { label: strin
 
 function ClientTable({ clients, emptyText }: { clients: BdmClient[]; emptyText: string }) {
   if (!clients.length) return <div className="px-6 py-10 text-center text-sm text-slate-500">{emptyText}</div>;
-  return <div className="overflow-x-auto"><table className="min-w-full divide-y divide-slate-200 text-sm"><thead className="bg-slate-50"><tr><th className="px-6 py-3 text-left font-semibold text-slate-600">Client</th><th className="px-6 py-3 text-left font-semibold text-slate-600">Requirement</th><th className="px-6 py-3 text-left font-semibold text-slate-600">Stage</th><th className="px-6 py-3 text-left font-semibold text-slate-600">Last Update</th><th className="px-6 py-3 text-right font-semibold text-slate-600">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{clients.map((client) => <tr key={client.id}><td className="px-6 py-4"><p className="font-bold text-slate-900">{client.companyName ?? client.name}</p>{client.companyName && <p className="mt-1 text-xs text-slate-400">{client.name}</p>}</td><td className="max-w-sm px-6 py-4 text-slate-600"><p className="line-clamp-2">{client.requirements ?? 'Requirement not added yet.'}</p></td><td className="px-6 py-4"><span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${stageClass(client.onboardingStage)}`}>{stageLabel(client.onboardingStage)}</span></td><td className="px-6 py-4 text-slate-500">{formatDate(client.updatedAt ?? client.createdAt)}</td><td className="px-6 py-4 text-right"><Link href="/clients" className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-50">Open<ArrowRight className="h-3.5 w-3.5" /></Link></td></tr>)}</tbody></table></div>;
+  return <div className="overflow-x-auto"><table className="min-w-full divide-y divide-slate-200 text-sm"><thead className="bg-slate-50"><tr><th className="px-6 py-3 text-left font-semibold text-slate-600">Client</th><th className="px-6 py-3 text-left font-semibold text-slate-600">Scope / Commitments</th><th className="px-6 py-3 text-left font-semibold text-slate-600">Stage</th><th className="px-6 py-3 text-left font-semibold text-slate-600">Last Update</th><th className="px-6 py-3 text-right font-semibold text-slate-600">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{clients.map((client) => <tr key={client.id}><td className="px-6 py-4"><p className="font-bold text-slate-900">{client.companyName ?? client.name}</p>{client.companyName && <p className="mt-1 text-xs text-slate-400">{client.name}</p>}</td><td className="max-w-sm px-6 py-4 text-slate-600"><p className="line-clamp-2">{client.requirements ?? 'Scope / commitments not added yet.'}</p></td><td className="px-6 py-4"><span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${stageClass(client.onboardingStage)}`}>{stageLabel(client.onboardingStage)}</span></td><td className="px-6 py-4 text-slate-500">{formatDate(client.updatedAt ?? client.createdAt)}</td><td className="px-6 py-4 text-right"><Link href="/clients" className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 transition hover:bg-slate-50">Open<ArrowRight className="h-3.5 w-3.5" /></Link></td></tr>)}</tbody></table></div>;
 }
 
-function AccountsTable({ clients, saving, onCreateQuotation, onAdvance }: { clients: AccountsClient[]; saving: boolean; onCreateQuotation: (client: AccountsClient) => void; onAdvance: (client: AccountsClient, stage: Exclude<ClientAccountsStage, 'NEW_HANDOVER'>) => void }) {
+function AccountsTable({ clients, saving, onCreateQuotation }: { clients: AccountsClient[]; saving: boolean; onCreateQuotation: (client: AccountsClient) => void; onAdvance: (client: AccountsClient, stage: Exclude<ClientAccountsStage, 'NEW_HANDOVER'>) => void }) {
   if (!clients.length) return <div className="px-6 py-10 text-center text-sm text-slate-500">No pending Accounts client handovers.</div>;
   return <div className="overflow-x-auto"><table className="min-w-full divide-y divide-slate-200 text-sm"><thead className="bg-slate-50"><tr><th className="px-6 py-3 text-left font-semibold text-slate-600">Client</th><th className="px-6 py-3 text-left font-semibold text-slate-600">Accounts Stage</th><th className="px-6 py-3 text-left font-semibold text-slate-600">Quotation</th><th className="px-6 py-3 text-left font-semibold text-slate-600">Received</th><th className="px-6 py-3 text-right font-semibold text-slate-600">Action</th></tr></thead><tbody className="divide-y divide-slate-100">{clients.map((client) => {
     const stage = client.accountsStage ?? 'NEW_HANDOVER';
-    return <tr key={client.id}><td className="px-6 py-4"><p className="font-bold text-slate-900">{client.companyName ?? client.name}</p><p className="mt-1 max-w-xs line-clamp-1 text-xs text-slate-500">{client.requirements ?? 'No requirement note'}</p></td><td className="px-6 py-4"><span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${accountsStageClass(stage)}`}>{accountsStageLabel(stage)}</span></td><td className="px-6 py-4 text-slate-600">{client.quotationNumber ? <><p className="font-semibold text-slate-800">{client.quotationNumber}</p><p className="mt-1 text-xs">{formatCurrency(client.quotationAmount)}</p></> : '—'}</td><td className="px-6 py-4 text-slate-500">{formatDate(client.accountsHandoverAt)}</td><td className="px-6 py-4 text-right"><div className="flex justify-end gap-2">{stage === 'NEW_HANDOVER' && <button disabled={saving} onClick={() => onCreateQuotation(client)} className="rounded-lg bg-slate-950 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">Create Quotation</button>}{stage === 'QUOTATION_PREPARED' && <button disabled={saving} onClick={() => onAdvance(client, 'AWAITING_CLIENT_CONFIRMATION')} className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"><Send className="h-3.5 w-3.5" />Mark Sent</button>}{stage === 'AWAITING_CLIENT_CONFIRMATION' && <><button disabled={saving} onClick={() => onCreateQuotation(client)} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 disabled:opacity-50">Revise</button><button disabled={saving} onClick={() => onAdvance(client, 'READY_FOR_CLIENT_SERVICING')} className="rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">Client Confirmed</button></>}{stage === 'READY_FOR_CLIENT_SERVICING' && <button disabled={saving} onClick={() => onAdvance(client, 'HANDED_TO_CLIENT_SERVICING')} className="rounded-lg bg-violet-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">Hand Over to Client Servicing</button>}</div></td></tr>;
+    return <tr key={client.id}><td className="px-6 py-4"><p className="font-bold text-slate-900">{client.companyName ?? client.name}</p><p className="mt-1 max-w-xs line-clamp-1 text-xs text-slate-500">{client.requirements ?? 'No scope / commitment note'}</p></td><td className="px-6 py-4"><span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${accountsStageClass(stage)}`}>{accountsStageLabel(stage)}</span>{stage === 'QUOTATION_PREPARED' && <p className={`mt-1 text-[11px] font-bold ${client.quotationApprovedAt ? 'text-emerald-600' : 'text-amber-600'}`}>{client.quotationApprovedAt ? 'Super Admin approved' : 'Waiting Super Admin approval'}</p>}</td><td className="px-6 py-4 text-slate-600">{client.quotationNumber ? <><p className="font-semibold text-slate-800">{client.quotationNumber}</p><p className="mt-1 text-xs">{formatCurrency(client.quotationAmount)}</p></> : '—'}</td><td className="px-6 py-4 text-slate-500">{formatDate(client.accountsHandoverAt)}</td><td className="px-6 py-4 text-right"><div className="flex justify-end gap-2">{stage === 'NEW_HANDOVER' && <button disabled={saving} onClick={() => onCreateQuotation(client)} className="rounded-lg bg-slate-950 px-3 py-2 text-xs font-bold text-white disabled:opacity-50">Create Quotation</button>}{stage === 'QUOTATION_PREPARED' && <button disabled={saving} onClick={() => onCreateQuotation(client)} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-700 disabled:opacity-50">Revise Quotation</button>}{stage !== 'NEW_HANDOVER' && stage !== 'QUOTATION_PREPARED' && <span className="text-xs font-semibold text-slate-400">BDM / Client workflow</span>}</div></td></tr>;
   })}</tbody></table></div>;
 }
 
 function QuotationModal({ client, saving, onClose, onSubmit }: { client: AccountsClient; saving: boolean; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4"><div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl"><div className="flex items-center justify-between border-b border-slate-200 px-6 py-5"><div><h3 className="text-xl font-black text-slate-950">Create / Update Quotation</h3><p className="mt-1 text-xs text-slate-500">{client.companyName ?? client.name}</p></div><button onClick={onClose} type="button" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button></div><form onSubmit={onSubmit} className="grid gap-4 p-6 sm:grid-cols-2"><label className="space-y-1.5"><span className="text-xs font-bold text-slate-600">Quotation Number</span><input name="quotationNumber" required defaultValue={client.quotationNumber ?? ''} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-violet-400" /></label><label className="space-y-1.5"><span className="text-xs font-bold text-slate-600">Quotation Amount (INR) <span className="font-medium text-slate-400">Optional</span></span><input name="quotationAmount" min="0" step="0.01" type="number" defaultValue={client.quotationAmount ?? ''} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-violet-400" /></label><label className="space-y-1.5 sm:col-span-2"><span className="text-xs font-bold text-slate-600">Quotation / Commercial Details</span><textarea name="quotationDetails" rows={4} defaultValue={client.quotationDetails ?? ''} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-violet-400" /></label><label className="space-y-1.5 sm:col-span-2"><span className="text-xs font-bold text-slate-600">Billing Details</span><textarea name="billingDetails" rows={3} defaultValue={client.billingDetails ?? ''} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-violet-400" /></label><div className="flex justify-end gap-3 sm:col-span-2"><button type="button" onClick={onClose} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-700">Cancel</button><button disabled={saving} className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{saving ? 'Saving…' : 'Save Quotation'}</button></div></form></div></div>;
+  const scope = client.scopeCommitments;
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4"><div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white shadow-2xl"><div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-5"><div><h3 className="text-xl font-black text-slate-950">Create / Update Quotation</h3><p className="mt-1 text-xs text-slate-500">{client.companyName ?? client.name}</p></div><button onClick={onClose} type="button" className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button></div><form onSubmit={onSubmit} className="grid gap-4 p-6 sm:grid-cols-2">
+    <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <p className="text-xs font-black uppercase tracking-wide text-slate-500">Client Details · Auto Filled</p>
+      <div className="mt-2 grid gap-2 text-sm sm:grid-cols-2">
+        <p><span className="font-bold text-slate-700">Company:</span> {client.companyName ?? client.name}</p>
+        <p><span className="font-bold text-slate-700">Brand:</span> {client.name}</p>
+        <p><span className="font-bold text-slate-700">Phone:</span> {client.phone || '—'}</p>
+        <p><span className="font-bold text-slate-700">Email:</span> {client.email || '—'}</p>
+      </div>
+      {client.requirements && <p className="mt-2 text-sm text-slate-600"><span className="font-bold text-slate-700">Scope:</span> {client.requirements}</p>}
+      {scope?.rows?.length ? <div className="mt-3 overflow-x-auto"><table className="min-w-full text-xs"><thead><tr><th className="border border-slate-200 px-2 py-1.5 text-left">Sr.</th>{scope.columns.map((column, index) => <th key={`${column}-${index}`} className="border border-l-0 border-slate-200 px-2 py-1.5 text-left">{column}</th>)}</tr></thead><tbody>{scope.rows.map((row, rowIndex) => <tr key={`qscope-${rowIndex}`}><td className="border border-t-0 border-slate-200 px-2 py-1.5">{rowIndex + 1}</td>{scope.columns.map((_, columnIndex) => <td key={`qscope-${rowIndex}-${columnIndex}`} className="border border-l-0 border-t-0 border-slate-200 px-2 py-1.5">{row[columnIndex] || '—'}</td>)}</tr>)}</tbody></table></div> : null}
+    </div>
+    <label className="space-y-1.5"><span className="text-xs font-bold text-slate-600">Quotation Amount (INR) <span className="font-medium text-slate-400">Optional</span></span><input name="quotationAmount" min="0" step="0.01" type="number" defaultValue={client.quotationAmount ?? ''} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-violet-400" /></label><label className="space-y-1.5 sm:col-span-2"><span className="text-xs font-bold text-slate-600">Quotation / Commercial Details</span><textarea name="quotationDetails" rows={4} defaultValue={client.quotationDetails ?? ''} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-violet-400" /></label><label className="space-y-1.5 sm:col-span-2"><span className="text-xs font-bold text-slate-600">Billing Details</span><textarea name="billingDetails" rows={3} defaultValue={client.billingDetails ?? ''} className="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-violet-400" /></label><div className="flex justify-end gap-3 sm:col-span-2"><button type="button" onClick={onClose} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-700">Cancel</button><button disabled={saving} className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-bold text-white disabled:opacity-50">{saving ? 'Saving…' : 'Save Quotation'}</button></div></form></div></div>;
 }
+

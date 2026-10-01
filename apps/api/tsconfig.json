@@ -16,12 +16,14 @@
     "outDir": "./dist",
     "baseUrl": "./",
     "ignoreDeprecations": "5.0",
-    "incremental": true,
+    "incremental": false,
     "skipLibCheck": true,
     "strictNullChecks": true,
     "forceConsistentCasingInFileNames": true,
     "noImplicitAny": true,
     "strictBindCallApply": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+    "rootDir": "./src",
+
   }
 }

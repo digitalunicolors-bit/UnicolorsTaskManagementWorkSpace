@@ -20,8 +20,6 @@ import {
   Loader2,
   MessageSquare,
   Paperclip,
-  RefreshCw,
-  RotateCcw,
   Search,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
@@ -110,7 +108,6 @@ type BoardResponse = {
     canUpdate: boolean;
     canReview: boolean;
     canApprove: boolean;
-    canReopen: boolean;
   };
 };
 
@@ -138,7 +135,7 @@ type Filters = {
   clientId: string;
   projectId: string;
   assigneeId: string;
-  priority: string;
+  status: string;
 };
 
 const emptyFilters: Filters = {
@@ -146,7 +143,7 @@ const emptyFilters: Filters = {
   clientId: '',
   projectId: '',
   assigneeId: '',
-  priority: '',
+  status: '',
 };
 
 const columnConfig: Array<{
@@ -274,9 +271,7 @@ function TaskCard({
   card,
   onDragStart,
   onOpen,
-  onReopen,
   busy,
-  canReopen,
 }: {
   card: Card;
   onDragStart: (
@@ -286,11 +281,7 @@ function TaskCard({
   onOpen: (
     card: Card,
   ) => void;
-  onReopen: (
-    card: Card,
-  ) => void;
   busy: boolean;
-  canReopen: boolean;
 }) {
   const primary =
     card.assignees.find(
@@ -370,25 +361,7 @@ function TaskCard({
               {card.title}
             </span>
 
-            {card.column === 'DONE' && canReopen ? (
-              <button
-                type="button"
-                draggable={false}
-                title="Reopen task"
-                aria-label="Reopen task"
-                disabled={busy}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onReopen(card);
-                }}
-                onMouseDown={(event) => event.stopPropagation()}
-                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-50"
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-              </button>
-            ) : (
-              <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-slate-300" />
-            )}
+            <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-slate-300" />
           </div>
 
           <div className="mt-3 space-y-1.5 text-xs text-slate-500">
@@ -540,13 +513,8 @@ export default function KanbanPage() {
 
   const {
     authFetch,
-    user,
   } =
     useAuth();
-
-  const isSuperAdmin = Boolean(
-    user?.roles?.includes('SUPER_ADMIN'),
-  );
 
   const [
     board,
@@ -701,6 +669,7 @@ export default function KanbanPage() {
               value,
             ]) => {
               if (
+                key !== 'status' &&
                 value.trim()
               ) {
                 params.set(
@@ -771,6 +740,17 @@ export default function KanbanPage() {
         filters.clientId,
       ],
     );
+
+
+  const visibleColumns = useMemo(
+    () =>
+      filters.status
+        ? columnConfig.filter(
+            (column) => column.code === filters.status,
+          )
+        : columnConfig,
+    [filters.status],
+  );
 
   const dragStart =
     (
@@ -864,14 +844,6 @@ export default function KanbanPage() {
         target ===
         'CHANGES_REQUESTED'
       ) {
-        if (!board?.permissions.canReview) {
-          await appDialog.alert({
-            title: 'Action not allowed',
-            message: 'You are not allowed for this.',
-          });
-          return;
-        }
-
         const response =
           await appDialog.prompt({
             title: 'Request changes',
@@ -982,37 +954,6 @@ export default function KanbanPage() {
       }
     };
 
-  const reopenTask = async (card: Card) => {
-    const confirmed = await appDialog.confirm({
-      title: 'Reopen completed task',
-      message: `Reopen "${card.title}" and move it back to In Progress?`,
-      confirmLabel: 'Reopen Task',
-    });
-
-    if (!confirmed) return;
-
-    setMovingId(card.id);
-    setError('');
-    setSuccess('');
-
-    try {
-      const result = await request<{ message: string }>(
-        `/kanban/${card.id}/reopen`,
-        { method: 'PATCH' },
-      );
-      setSuccess(result.message);
-      await loadBoard(true);
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Unable to reopen task.',
-      );
-    } finally {
-      setMovingId(null);
-    }
-  };
-
   const drop =
     async (
       event: DragEvent<HTMLElement>,
@@ -1051,32 +992,6 @@ export default function KanbanPage() {
 
   return (
     <div className="mx-auto w-full max-w-[1900px] space-y-4 pb-8">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-violet-50 text-violet-600">
-            <Columns3 className="h-5 w-5" />
-          </div>
-
-          <div>
-            <h1 className="text-2xl font-black tracking-tight text-slate-950">
-              Kanban Board
-            </h1>
-
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={() =>
-            void loadBoard()
-          }
-          className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-black text-slate-700 shadow-sm"
-        >
-          <RefreshCw className="h-4 w-4" />
-          Refresh
-        </button>
-      </div>
-
       {error && (
         <div className="rounded-2xl border border-red-100 bg-red-50 p-4 text-sm font-bold text-red-700">
           {error}
@@ -1089,9 +1004,9 @@ export default function KanbanPage() {
         </div>
       )}
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="relative min-w-[230px] flex-1">
+      <section className="overflow-x-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex min-w-max flex-nowrap items-center gap-2.5">
+          <div className="relative w-[250px] shrink-0">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
 
             <input
@@ -1135,7 +1050,7 @@ export default function KanbanPage() {
                 }),
               )
             }
-            className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
+            className="w-[125px] shrink-0 rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
           >
             <option value="">
               All Clients
@@ -1174,7 +1089,7 @@ export default function KanbanPage() {
                 }),
               )
             }
-            className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
+            className="w-[155px] shrink-0 rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
           >
             <option value="">
               All Projects
@@ -1213,10 +1128,10 @@ export default function KanbanPage() {
                 }),
               )
             }
-            className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
+            className="w-[185px] shrink-0 rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
           >
             <option value="">
-              {isSuperAdmin ? 'All Employees' : 'All Assignees'}
+              All Assignees
             </option>
 
             {options.employees.map(
@@ -1241,55 +1156,22 @@ export default function KanbanPage() {
           </select>
 
           <select
-            value={
-              filters.priority
+            value={filters.status}
+            onChange={(event) =>
+              setFilters((current) => ({
+                ...current,
+                status: event.target.value,
+              }))
             }
-            onChange={(
-              event,
-            ) =>
-              setFilters(
-                (
-                  current,
-                ) => ({
-                  ...current,
-                  priority:
-                    event.target.value,
-                }),
-              )
-            }
-            className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
+            className="w-[145px] shrink-0 rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
           >
-            <option value="">
-              All Priorities
-            </option>
-
-            {options.priorities.map(
-              (
-                priority,
-              ) => (
-                <option
-                  key={
-                    priority
-                  }
-                  value={
-                    priority
-                  }
-                >
-                  {priority}
-                </option>
-              ),
-            )}
+            <option value="">All Tasks</option>
+            <option value="TODO">To Do</option>
+            <option value="IN_PROGRESS">In Progress</option>
+            <option value="REVIEW">Review</option>
+            <option value="CHANGES_REQUESTED">Changes Requested</option>
+            <option value="DONE">Done</option>
           </select>
-
-          <button
-            type="button"
-            onClick={() =>
-              void loadBoard()
-            }
-            className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-black text-white"
-          >
-            Apply
-          </button>
 
           {Object.values(
             filters,
@@ -1299,7 +1181,7 @@ export default function KanbanPage() {
               onClick={
                 clearFilters
               }
-              className="rounded-xl px-3 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-100"
+              className="shrink-0 rounded-xl px-2.5 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-100"
             >
               Clear
             </button>
@@ -1316,8 +1198,14 @@ export default function KanbanPage() {
         </div>
       ) : (
         <div className="overflow-x-auto pb-4">
-          <div className="grid min-w-[1500px] grid-cols-5 gap-4">
-            {columnConfig.map(
+          <div
+            className={`grid gap-4 ${
+              filters.status
+                ? 'min-w-[320px] grid-cols-1'
+                : 'min-w-[1500px] grid-cols-5'
+            }`}
+          >
+            {visibleColumns.map(
               (
                 column,
               ) => {
@@ -1418,8 +1306,6 @@ export default function KanbanPage() {
                                 `/tasks?task=${task.id}&from=kanban`,
                               )
                             }
-                            canReopen={Boolean(board?.permissions.canReopen)}
-                            onReopen={(task) => void reopenTask(task)}
                           />
                         ),
                       )}

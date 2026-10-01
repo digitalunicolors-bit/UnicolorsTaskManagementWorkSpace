@@ -10,8 +10,11 @@ import {
 import {
   RefreshCcw,
   Search,
+  Check,
+  Pencil,
   Trash2,
   Users,
+  X,
 } from 'lucide-react';
 
 import { useAuth } from '@/components/auth/auth-provider';
@@ -143,6 +146,12 @@ export default function TeamPage() {
     useState('ALL');
   const [removingId, setRemovingId] =
     useState<string | null>(null);
+  const [editingRoleId, setEditingRoleId] =
+    useState<string | null>(null);
+  const [roleDraft, setRoleDraft] =
+    useState('');
+  const [savingRoleId, setSavingRoleId] =
+    useState<string | null>(null);
 
   const loadTeam = useCallback(async () => {
     setLoading(true);
@@ -255,6 +264,80 @@ export default function TeamPage() {
     }
   };
 
+
+  const startRoleEdit = (employee: Employee) => {
+    setEditingRoleId(employee.id);
+    setRoleDraft(employee.designation ?? '');
+  };
+
+  const cancelRoleEdit = () => {
+    setEditingRoleId(null);
+    setRoleDraft('');
+  };
+
+  const saveRole = async (employee: Employee) => {
+    const designation = roleDraft.trim();
+
+    if (!designation) {
+      setError('Please enter a role before saving.');
+      return;
+    }
+
+    setSavingRoleId(employee.id);
+    setError('');
+
+    try {
+      const response = await authFetch(`/employees/${employee.id}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ designation }),
+      });
+
+      let payload: unknown = null;
+      try {
+        payload = await response.json();
+      } catch {
+        payload = null;
+      }
+
+      if (!response.ok) {
+        const message =
+          payload &&
+          typeof payload === 'object' &&
+          'message' in payload
+            ? (payload as { message?: string | string[] }).message
+            : null;
+
+        throw new Error(
+          Array.isArray(message)
+            ? message.join(', ')
+            : typeof message === 'string'
+              ? message
+              : 'Unable to update role.',
+        );
+      }
+
+      setEmployees((current) =>
+        current.map((item) =>
+          item.id === employee.id
+            ? { ...item, designation }
+            : item,
+        ),
+      );
+      cancelRoleEdit();
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : 'Unable to update role.',
+      );
+    } finally {
+      setSavingRoleId(null);
+    }
+  };
+
   const filteredEmployees = useMemo(() => {
     const query = search.trim().toLowerCase();
 
@@ -270,11 +353,6 @@ export default function TeamPage() {
         .map((item) => item.role.name)
         .join(' ');
 
-      const teams =
-        employee.teamMemberships
-          ?.map((item) => item.team.name)
-          .join(' ') ?? '';
-
       const matchesSearch =
         !query ||
         [
@@ -287,7 +365,6 @@ export default function TeamPage() {
           employee.user.email ?? '',
           employee.user.phone ?? '',
           roles,
-          teams,
         ].some((value) =>
           value.toLowerCase().includes(query),
         );
@@ -433,14 +510,13 @@ export default function TeamPage() {
           </div>
         ) : filteredEmployees.length ? (
           <div className="overflow-x-auto">
-            <table className="min-w-[1180px] w-full text-left">
+            <table className="min-w-[980px] w-full text-left">
               <thead className="bg-slate-50 text-[11px] font-bold uppercase tracking-wide text-slate-500">
                 <tr>
                   <th className="px-5 py-3">Team Member</th>
                   <th className="px-5 py-3">Department</th>
-                  <th className="px-5 py-3">Designation / Role</th>
+                  <th className="px-5 py-3">Role</th>
                   <th className="px-5 py-3">Reports To</th>
-                  <th className="px-5 py-3">Teams</th>
                   <th className="px-5 py-3">Contact</th>
                   <th className="px-5 py-3">Status</th>
                 </tr>
@@ -477,28 +553,78 @@ export default function TeamPage() {
                         )}
                       </td>
 
-                      <td className="px-5 py-4">
-                        <p className="text-sm font-semibold text-slate-800">
-                          {employee.designation || '—'}
-                        </p>
-                        <div className="mt-2 flex flex-wrap gap-1">
-                          {roles.length ? (
-                            roles.map((role) => (
-                              <span
-                                key={role}
-                                className="rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-bold text-indigo-700"
-                              >
-                                {role === 'EMPLOYEE'
-                                  ? 'TEAM MEMBER'
-                                  : role.replaceAll('_', ' ')}
+                      <td className="px-5 py-4 text-sm text-slate-800">
+                        {isSuperAdmin && editingRoleId === employee.id ? (
+                          <div className="flex min-w-[230px] items-center gap-2">
+                            <input
+                              value={roleDraft}
+                              onChange={(event) => setRoleDraft(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') {
+                                  event.preventDefault();
+                                  void saveRole(employee);
+                                }
+                                if (event.key === 'Escape') {
+                                  cancelRoleEdit();
+                                }
+                              }}
+                              autoFocus
+                              placeholder="e.g. Graphic Designer"
+                              className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-semibold text-slate-800 outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+                            />
+                            <button
+                              type="button"
+                              title="Save role"
+                              aria-label={`Save role for ${employee.fullName}`}
+                              disabled={savingRoleId === employee.id}
+                              onClick={() => void saveRole(employee)}
+                              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+                            >
+                              <Check className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              title="Cancel"
+                              aria-label="Cancel role edit"
+                              onClick={cancelRoleEdit}
+                              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            {employee.designation ? (
+                              <span className="font-semibold text-slate-800">
+                                {employee.designation}
                               </span>
-                            ))
-                          ) : (
-                            <span className="text-xs text-slate-400">
-                              No role
-                            </span>
-                          )}
-                        </div>
+                            ) : isSuperAdmin ? (
+                              <button
+                                type="button"
+                                onClick={() => startRoleEdit(employee)}
+                                className="font-semibold text-violet-600 hover:text-violet-700 hover:underline"
+                              >
+                                Set Role
+                              </button>
+                            ) : (
+                              <span className="text-slate-400">
+                                Not assigned
+                              </span>
+                            )}
+
+                            {isSuperAdmin && employee.designation && (
+                              <button
+                                type="button"
+                                title="Edit role"
+                                aria-label={`Edit role for ${employee.fullName}`}
+                                onClick={() => startRoleEdit(employee)}
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-400 hover:bg-violet-50 hover:text-violet-600"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </td>
 
                       <td className="px-5 py-4 text-sm text-slate-700">
@@ -507,27 +633,6 @@ export default function TeamPage() {
                             —
                           </span>
                         )}
-                      </td>
-
-                      <td className="px-5 py-4">
-                        <div className="flex max-w-[220px] flex-wrap gap-1">
-                          {employee.teamMemberships?.length ? (
-                            employee.teamMemberships.map(
-                              (membership) => (
-                                <span
-                                  key={membership.id}
-                                  className="rounded-lg bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-600"
-                                >
-                                  {membership.team.name}
-                                </span>
-                              ),
-                            )
-                          ) : (
-                            <span className="text-sm text-slate-400">
-                              —
-                            </span>
-                          )}
-                        </div>
                       </td>
 
                       <td className="px-5 py-4 text-xs text-slate-600">

@@ -99,6 +99,20 @@ export class TasksController {
     return this.tasksService.update(id, dto, this.getUserId(request));
   }
 
+  @Post(':id/start-task')
+  @Permissions('tasks.update')
+  startTask(
+    @Param('id') id: string,
+    @Body() dto: TaskWorkflowActionDto,
+    @Req() request: AuthenticatedRequest,
+  ) {
+    return this.tasksService.startTask(
+      id,
+      this.getUserId(request),
+      dto,
+    );
+  }
+
   @Post(':id/submit-review')
   @Permissions('tasks.update')
   submitForReview(
@@ -114,7 +128,7 @@ export class TasksController {
   }
 
   @Post(':id/request-changes')
-  @Permissions('tasks.view')
+  @Permissions('tasks.review')
   requestChanges(
     @Param('id') id: string,
     @Body() dto: TaskWorkflowActionDto,
@@ -142,7 +156,7 @@ export class TasksController {
   }
 
   @Post(':id/approve')
-  @Permissions('tasks.view')
+  @Permissions('tasks.approve')
   approveTask(
     @Param('id') id: string,
     @Body() dto: TaskWorkflowActionDto,

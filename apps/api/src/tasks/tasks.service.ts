@@ -46,7 +46,6 @@ export class TasksService {
           status: true,
           reviewStage: true,
           clientApprovedAt: true,
-          deadline: true,
           name: true,
           projectManagerId: true,
         },
@@ -116,11 +115,7 @@ export class TasksService {
       hasWorkSinceLastClientApproval &&
       project.reviewStage !== ProjectReviewStage.CLIENT_REVIEW
     ) {
-      // Permanent projects (no deadline) stay operational while a review cycle runs.
-      // Deadline-based projects can move into UNDER_REVIEW.
-      nextStatus = project.deadline
-        ? ProjectStatus.UNDER_REVIEW
-        : ProjectStatus.ACTIVE;
+      nextStatus = ProjectStatus.UNDER_REVIEW;
       nextReviewStage = ProjectReviewStage.CLIENT_SERVICING_REVIEW;
     } else if (
       codes.some((code) =>
@@ -548,6 +543,14 @@ export class TasksService {
           },
         },
       },
+      {
+        reviewers: {
+          some: {
+            employeeId:
+              employee.id,
+          },
+        },
+      },
     ],
   };
 }
@@ -603,7 +606,63 @@ async findOneForUser(
   }
   
 
-  return this.findOne(taskId);
+  const [task, employee] = await Promise.all([
+    this.findOne(taskId),
+    this.prisma.employeeProfile.findFirst({
+      where: {
+        userId,
+        deletedAt: null,
+      },
+      select: { id: true },
+    }),
+  ]);
+
+  let canWork = false;
+
+  if (employee) {
+    const workAccess = await this.prisma.task.findFirst({
+      where: {
+        id: taskId,
+        deletedAt: null,
+        OR: [
+          {
+            assignees: {
+              some: {
+                employeeId: employee.id,
+                removedAt: null,
+              },
+            },
+          },
+          {
+            collaborators: {
+              some: {
+                employeeId: employee.id,
+                removedAt: null,
+              },
+            },
+          },
+          {
+            subtasks: {
+              some: {
+                assignedEmployeeId: employee.id,
+                deletedAt: null,
+              },
+            },
+          },
+        ],
+      },
+      select: { id: true },
+    });
+
+    canWork = Boolean(workAccess);
+  }
+
+  return {
+    ...task,
+    viewer: {
+      canWork,
+    },
+  };
 }
 
 private async assertTaskVisible(
@@ -675,74 +734,6 @@ private async assertTaskVisible(
       .trim()
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '');
-  }
-
-  private isCreativeDepartment(
-    value?: string | null,
-  ) {
-    const normalized =
-      this.normalizeDepartmentName(value);
-
-    return [
-      'creative',
-      'creativedepartment',
-      'graphicdesign',
-      'graphicdesigning',
-      'design',
-    ].includes(normalized);
-  }
-
-  private async requiredClientServicingReviewerForDepartment(
-    departmentId?: string | null,
-  ): Promise<string | null> {
-    if (!departmentId) return null;
-
-    const department =
-      await this.prisma.department.findFirst({
-        where: {
-          id: departmentId,
-          deletedAt: null,
-          isActive: true,
-        },
-        select: { name: true },
-      });
-
-    if (!this.isCreativeDepartment(department?.name)) {
-      return null;
-    }
-
-    const departments =
-      await this.prisma.department.findMany({
-        where: {
-          deletedAt: null,
-          isActive: true,
-          headId: { not: null },
-        },
-        select: {
-          name: true,
-          headId: true,
-        },
-      });
-
-    const clientServicing = departments.find((item) => {
-      const normalized =
-        this.normalizeDepartmentName(item.name);
-      return [
-        'clientservicing',
-        'clientservice',
-        'clientservicingdepartment',
-        'clientrelations',
-        'clientrelationship',
-      ].includes(normalized);
-    });
-
-    if (!clientServicing?.headId) {
-      throw new BadRequestException(
-        'Creative tasks require an active Client Servicing HOD reviewer.',
-      );
-    }
-
-    return clientServicing.headId;
   }
 
   private async buildReviewerOptions(
@@ -1374,6 +1365,101 @@ private async assertTaskVisible(
       }
     }
 
+    if (query.reviewQueue === true) {
+      where.status = {
+        code: {
+          in: [
+            'REVIEW',
+            'INTERNAL_REVIEW',
+            'CLIENT_REVIEW',
+          ],
+        },
+      };
+
+      const userRoles =
+        await this.prisma.userRole.findMany({
+          where: {
+            userId,
+            role: { isActive: true },
+          },
+          select: {
+            role: {
+              select: { name: true },
+            },
+          },
+        });
+
+      const roleNames = userRoles.map(
+        (item) => item.role.name,
+      );
+
+      if (
+        !roleNames.includes('SUPER_ADMIN') &&
+        !roleNames.includes('ADMIN')
+      ) {
+        const reviewerEmployee =
+          await this.prisma.employeeProfile.findFirst({
+            where: {
+              userId,
+              deletedAt: null,
+            },
+            select: { id: true },
+          });
+
+        if (!reviewerEmployee) {
+          where.id = '__NO_REVIEW_TASKS__';
+        } else {
+          where.AND = [
+            ...(where.AND ?? []),
+            {
+              OR: [
+                {
+                  reviewers: {
+                    some: {
+                      employeeId:
+                        reviewerEmployee.id,
+                    },
+                  },
+                },
+                {
+                  department: {
+                    headId:
+                      reviewerEmployee.id,
+                  },
+                },
+                {
+                  project: {
+                    projectManagerId:
+                      reviewerEmployee.id,
+                  },
+                },
+                {
+                  project: {
+                    department: {
+                      headId:
+                        reviewerEmployee.id,
+                    },
+                  },
+                },
+                {
+                  project: {
+                    projectDepartments: {
+                      some: {
+                        department: {
+                          headId:
+                            reviewerEmployee.id,
+                        },
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          ];
+        }
+      }
+    }
+
     if (
       query.dueFrom ||
       query.dueTo
@@ -1789,16 +1875,6 @@ private async assertTaskVisible(
             orderBy: {
               sortOrder: 'asc',
             },
-            include: {
-              assignedEmployee: {
-                select: {
-                  id: true,
-                  employeeId: true,
-                  fullName: true,
-                  designation: true,
-                },
-              },
-            },
           },
 
           checklist: {
@@ -1988,20 +2064,6 @@ private async assertTaskVisible(
       this.unique(
         dto.reviewerIds,
       );
-
-    const requiredClientServicingReviewerId =
-      await this.requiredClientServicingReviewerForDepartment(
-        dto.departmentId,
-      );
-
-    if (
-      requiredClientServicingReviewerId &&
-      !reviewerIds.includes(requiredClientServicingReviewerId)
-    ) {
-      reviewerIds.push(
-        requiredClientServicingReviewerId,
-      );
-    }
 
     await this.validateEmployees([
       ...assigneeIds,
@@ -2453,13 +2515,6 @@ private async assertTaskVisible(
           isDraft: true,
           createdById: true,
           statusId: true,
-          departmentId: true,
-          department: {
-            select: {
-              id: true,
-              name: true,
-            },
-          },
 
           status: {
             select: {
@@ -2515,7 +2570,6 @@ private async assertTaskVisible(
       },
       select: {
         id: true,
-        fullName: true,
       },
     });
   }
@@ -2620,6 +2674,71 @@ private async assertTaskVisible(
     return transition;
   }
 
+  async startTask(
+    taskId: string,
+    userId: string,
+    dto: TaskWorkflowActionDto,
+  ) {
+    const task =
+      await this.getWorkflowTask(
+        taskId,
+      );
+
+    await this.assertCanWorkOnTask(
+      task,
+      userId,
+    );
+
+    if (task.status.code !== 'TODO') {
+      throw new BadRequestException(
+        'Only To Do tasks can be started.',
+      );
+    }
+
+    const inProgressStatus =
+      await this.getWorkflowStatus(
+        'IN_PROGRESS',
+      );
+
+    await this.ensureTransition(
+      task.statusId,
+      inProgressStatus.id,
+    );
+
+    await this.prisma.$transaction(
+      async (tx) => {
+        await tx.task.update({
+          where: { id: taskId },
+          data: {
+            statusId:
+              inProgressStatus.id,
+          },
+        });
+
+        await tx.taskStatusHistory.create({
+          data: {
+            taskId,
+            fromStatusId:
+              task.statusId,
+            toStatusId:
+              inProgressStatus.id,
+            changedById:
+              userId,
+            reason:
+              this.clean(dto.note) ??
+              'Task started',
+          },
+        });
+      },
+    );
+
+    await this.syncProjectStatusFromTasks(
+      task.projectId,
+    );
+
+    return this.findOne(taskId);
+  }
+
   async submitForReview(
     taskId: string,
     userId: string,
@@ -2645,26 +2764,6 @@ private async assertTaskVisible(
       throw new BadRequestException(
         'Assign at least one reviewer before submitting the task.',
       );
-    }
-
-    if (this.isCreativeDepartment(task.department?.name)) {
-      const requiredClientServicingReviewerId =
-        await this.requiredClientServicingReviewerForDepartment(
-          task.departmentId,
-        );
-
-      if (
-        requiredClientServicingReviewerId &&
-        !task.reviewers.some(
-          (reviewer) =>
-            reviewer.employeeId ===
-            requiredClientServicingReviewerId,
-        )
-      ) {
-        throw new BadRequestException(
-          'Creative tasks require the Client Servicing HOD as a reviewer.',
-        );
-      }
     }
 
     const reviewStatus =
@@ -3141,47 +3240,12 @@ private async assertTaskVisible(
         },
       });
 
-    const pendingReviewerApprovals =
-      await this.prisma.taskApproval.findMany({
-        where: {
-          taskId,
-          status: ApprovalStatus.PENDING,
-          reviewerId: { not: null },
-        },
-        select: { reviewerId: true },
-      });
-
-    const pendingReviewerIds = [
-      ...new Set(
-        pendingReviewerApprovals
-          .map((item) => item.reviewerId)
-          .filter((id): id is string => Boolean(id)),
-      ),
-    ];
-
-    if (pendingReviewerIds.length) {
-      await this.notifications.notifyEmployees(
-        pendingReviewerIds,
-        {
-          actorId: userId,
-          kind: NotificationKind.TASK_APPROVED,
-          title: 'Reviewer approved · your review is pending',
-          message: `${employee.fullName} approved this task. Your review is still pending.`,
-          entityType: 'TASK',
-          entityId: taskId,
-          redirectPath: `/tasks?taskId=${taskId}`,
-        },
-      );
-    }
-
     await this.notifications.notifyTaskAssignees(
       taskId,
       userId,
       NotificationKind.TASK_APPROVED,
       'Task approved',
-      notificationTask?.status.code === 'DONE'
-        ? 'Your task has been approved by all required reviewers.'
-        : `${employee.fullName} approved the task. Waiting for remaining reviewers.`,
+      'Your task has been approved.',
     );
 
     await this.syncProjectStatusFromTasks(

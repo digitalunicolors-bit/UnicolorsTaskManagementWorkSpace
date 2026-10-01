@@ -260,6 +260,9 @@ export function AuthProvider({
             credentials: 'include',
           },
         );
+      } catch (error) {
+        // Local logout must still succeed if the API is temporarily unreachable.
+        console.warn('Logout API request failed; clearing local session.', error);
       } finally {
         setUser(null);
         setAccessToken(null);
@@ -277,6 +280,9 @@ export function AuthProvider({
             method: 'POST',
           },
         );
+      } catch (error) {
+        // Avoid a runtime error screen when logout-all cannot reach the API.
+        console.warn('Logout-all API request failed; clearing local session.', error);
       } finally {
         setUser(null);
         setAccessToken(null);

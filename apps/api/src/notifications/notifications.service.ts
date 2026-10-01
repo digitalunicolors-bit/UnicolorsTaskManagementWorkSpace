@@ -374,26 +374,95 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
     title: string,
     message: string,
   ) {
-    const reviewers = await this.prisma.taskReviewer.findMany({
-      where: {
-        taskId,
-        employee: {
-          deletedAt: null,
-          user: {
-            isActive: true,
+    const [reviewers, task, superAdminRoles] = await Promise.all([
+      this.prisma.taskReviewer.findMany({
+        where: {
+          taskId,
+          employee: {
             deletedAt: null,
+            user: {
+              isActive: true,
+              deletedAt: null,
+            },
           },
         },
-      },
-      select: {
-        employee: {
-          select: { userId: true },
+        select: {
+          employee: {
+            select: { userId: true },
+          },
         },
-      },
+      }),
+      this.prisma.task.findUnique({
+        where: { id: taskId },
+        select: {
+          departmentId: true,
+          project: {
+            select: {
+              departmentId: true,
+              projectDepartments: {
+                select: { departmentId: true },
+              },
+            },
+          },
+        },
+      }),
+      this.prisma.userRole.findMany({
+        where: {
+          role: {
+            name: 'SUPER_ADMIN',
+            isActive: true,
+          },
+        },
+        select: { userId: true },
+      }),
+    ]);
+
+    const departmentIds = new Set<string>();
+
+    if (task?.departmentId) {
+      departmentIds.add(task.departmentId);
+    }
+
+    if (task?.project?.departmentId) {
+      departmentIds.add(task.project.departmentId);
+    }
+
+    task?.project?.projectDepartments.forEach((item) => {
+      if (item.departmentId) {
+        departmentIds.add(item.departmentId);
+      }
     });
 
+    const departments = departmentIds.size
+      ? await this.prisma.department.findMany({
+          where: {
+            id: { in: [...departmentIds] },
+            deletedAt: null,
+          },
+          select: { headId: true },
+        })
+      : [];
+
+    const headIds = departments
+      .map((item) => item.headId)
+      .filter((value): value is string => Boolean(value));
+
+    const heads = headIds.length
+      ? await this.prisma.employeeProfile.findMany({
+          where: {
+            id: { in: headIds },
+            deletedAt: null,
+          },
+          select: { userId: true },
+        })
+      : [];
+
     return this.notifyUsers(
-      reviewers.map((item) => item.employee.userId),
+      [
+        ...reviewers.map((item) => item.employee.userId),
+        ...heads.map((item) => item.userId),
+        ...superAdminRoles.map((item) => item.userId),
+      ],
       {
         actorId,
         kind,
@@ -401,7 +470,7 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
         message,
         entityType: 'TASK',
         entityId: taskId,
-        redirectPath: `/tasks?task=${taskId}`,
+        redirectPath: `/tasks?mine=1&task=${taskId}`,
       },
     );
   }

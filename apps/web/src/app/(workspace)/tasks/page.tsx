@@ -1,4 +1,4 @@
-'use client';
+"use client";
 
 import {
   ChangeEvent,
@@ -8,7 +8,7 @@ import {
   useEffect,
   useRef,
   useState,
-} from 'react';
+} from "react";
 
 import {
   AlertTriangle,
@@ -30,16 +30,16 @@ import {
   Trash2,
   Upload,
   X,
-} from 'lucide-react';
+} from "lucide-react";
 
-import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 
-import { useAuth } from '@/components/auth/auth-provider';
-import { TaskCommunicationPanel } from '@/components/tasks/task-communication-panel';
-import { TaskVoiceNotesPanel } from '@/components/tasks/task-voice-notes-panel';
-import { appDialog } from '@/components/ui/app-dialog-provider';
-type Priority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+import { useAuth } from "@/components/auth/auth-provider";
+import { TaskCommunicationPanel } from "@/components/tasks/task-communication-panel";
+import { TaskVoiceNotesPanel } from "@/components/tasks/task-voice-notes-panel";
+import { appDialog } from "@/components/ui/app-dialog-provider";
+type Priority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
 
 interface TaskStatus {
   id: string;
@@ -58,6 +58,10 @@ interface Client {
   id: string;
   name: string;
   companyName?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  requirements?: string | null;
+  primaryContacts?: string[];
 }
 
 interface Project {
@@ -70,7 +74,6 @@ interface Project {
   priority?: Priority;
   client?: Client;
 }
-
 
 interface Department {
   id: string;
@@ -106,11 +109,7 @@ interface SubtaskRecord {
   sortOrder: number;
 }
 
-type SubtaskWorkflowStatus =
-  | 'PENDING'
-  | 'STARTED'
-  | 'PAUSED'
-  | 'COMPLETED';
+type SubtaskWorkflowStatus = "PENDING" | "STARTED" | "PAUSED" | "COMPLETED";
 
 interface SubtaskWorkflowItem {
   id: string;
@@ -174,11 +173,7 @@ interface TaskApproval {
   id: string;
   reviewerId?: string | null;
   status:
-    | 'PENDING'
-    | 'APPROVED'
-    | 'CHANGES_REQUESTED'
-    | 'REJECTED'
-    | 'CANCELLED';
+    "PENDING" | "APPROVED" | "CHANGES_REQUESTED" | "REJECTED" | "CANCELLED";
   decisionNote?: string | null;
   requestedAt: string;
   decidedAt?: string | null;
@@ -233,6 +228,10 @@ interface Task {
     comments?: number;
     files?: number;
   };
+
+  viewer?: {
+    canWork: boolean;
+  };
 }
 
 interface TasksResponse {
@@ -251,27 +250,17 @@ interface TaskMeta {
   priorities: Priority[];
 }
 
-type ModalMode =
-  | 'create'
-  | 'edit'
-  | 'view'
-  | null;
+type ModalMode = "create" | "edit" | "view" | null;
 
 type WorkflowAction =
-  | 'submit-review'
-  | 'request-changes'
-  | 'resume-work'
-  | 'approve';
+  | "start-task"
+  | "submit-review"
+  | "request-changes"
+  | "resume-work"
+  | "approve";
 
-function getErrorMessage(
-  value: unknown,
-  fallback: string,
-) {
-  if (
-    typeof value === 'object' &&
-    value !== null &&
-    'message' in value
-  ) {
+function getErrorMessage(value: unknown, fallback: string) {
+  if (typeof value === "object" && value !== null && "message" in value) {
     const message = (
       value as {
         message?: string | string[];
@@ -279,10 +268,10 @@ function getErrorMessage(
     ).message;
 
     if (Array.isArray(message)) {
-      return message.join(', ');
+      return message.join(", ");
     }
 
-    if (typeof message === 'string') {
+    if (typeof message === "string") {
       return message;
     }
   }
@@ -290,20 +279,16 @@ function getErrorMessage(
   return fallback;
 }
 
-function unwrapList<T>(
-  value: unknown,
-): T[] {
+function unwrapList<T>(value: unknown): T[] {
   if (Array.isArray(value)) {
     return value as T[];
   }
 
   if (
-    typeof value === 'object' &&
+    typeof value === "object" &&
     value !== null &&
-    'data' in value &&
-    Array.isArray(
-      (value as { data?: unknown }).data,
-    )
+    "data" in value &&
+    Array.isArray((value as { data?: unknown }).data)
   ) {
     return (
       value as {
@@ -316,189 +301,263 @@ function unwrapList<T>(
 }
 
 export default function TasksPage() {
-  const {
-    authFetch,
-    hasPermission,
-    user,
-  } = useAuth();
+  const { authFetch, hasPermission, user } = useAuth();
 
   const searchParams = useSearchParams();
   const router = useRouter();
 
-const criticalMode =
-  searchParams.get('critical') === '1';
+    useEffect(() => {
+    if (searchParams.get('bdm') !== '1') return;
 
-const linkedCreateMode =
-  searchParams.get('create') === '1';
-
-const linkedProjectId =
-  searchParams.get('projectId') ?? '';
-
-const linkedDepartmentId =
-  searchParams.get('departmentId') ?? '';
-
-const requestedTaskId =
-  searchParams.get('task') ?? '';
-
-const openedFromKanban =
-  searchParams.get('from') === 'kanban';
-
-const myTasksMode =
-  searchParams.get('mine') === '1';
-
-
-  const isAdmin =
-    Boolean(
-      user?.roles?.includes('ADMIN') &&
-        !user?.roles?.includes('SUPER_ADMIN'),
+    const titles = Array.from(
+      document.querySelectorAll('h1,h2,h3,h4,p,div'),
     );
 
-  const isManager =
-    Boolean(
-      user?.roles?.includes('MANAGER') &&
-        !user?.roles?.includes('ADMIN') &&
-        !user?.roles?.includes('SUPER_ADMIN'),
+    const reviewTitle = titles.find(
+      (element) =>
+        element.textContent?.trim() === 'Review Tasks',
     );
 
-  const isTeamMember =
-    Boolean(
-      user?.roles?.includes('EMPLOYEE') &&
-        !user?.roles?.includes('MANAGER') &&
-        !user?.roles?.includes('ADMIN') &&
-        !user?.roles?.includes('SUPER_ADMIN'),
+    if (!reviewTitle) return;
+
+    let card = reviewTitle.parentElement;
+
+    while (
+      card &&
+      !card.textContent?.includes(
+        'Tasks waiting for your review or approval.',
+      )
+    ) {
+      card = card.parentElement;
+    }
+
+    if (card) {
+      card.style.display = 'none';
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
+    const myTasksMode = searchParams.get('mine') === '1';
+
+    const headings = Array.from(
+      document.querySelectorAll('h2, h3'),
     );
 
-  const [tasks, setTasks] =
-    useState<Task[]>([]);
+    const hideCard = (
+      headingText: string,
+      shouldHide: boolean,
+    ) => {
+      const heading = headings.find(
+        (item) =>
+          item.textContent?.trim() === headingText,
+      );
 
-  const [clients, setClients] =
-    useState<Client[]>([]);
+      if (!heading) return;
 
-  const [projects, setProjects] =
-    useState<Project[]>([]);
+      let card = heading.parentElement;
 
-  const [employees, setEmployees] =
-    useState<Employee[]>([]);
+      while (
+        card &&
+        !card.textContent?.includes(
+          headingText === 'Review Tasks'
+            ? 'Tasks waiting for your review or approval.'
+            : 'Work assigned to you for execution.',
+        )
+      ) {
+        card = card.parentElement;
+      }
 
+      if (card) {
+        card.style.display = shouldHide
+          ? 'none'
+          : '';
+      }
+    };
 
-  const [departments, setDepartments] =
-    useState<Department[]>([]);
+    // BDM / My Tasks mode
+    hideCard('Review Tasks', myTasksMode);
 
-  const [extraOptions, setExtraOptions] =
-    useState<TaskExtraOptions>({
-      tags: [],
-      dependencyTasks: [],
+    // Normal /tasks = Super Admin review screen
+    hideCard('My Tasks', !myTasksMode);
+  }, [searchParams]);
+
+  // BDM My Tasks: Review Tasks card completely hide
+  useEffect(() => {
+    if (searchParams.get('bdm') !== '1') return;
+
+    const removeBdmReviewCard = () => {
+      const elements = Array.from(
+        document.querySelectorAll('div, section, p'),
+      );
+
+      const message = elements.find(
+        (el) =>
+          el.textContent?.trim() ===
+          'No tasks are waiting for review.',
+      );
+
+      if (!message) return;
+
+      let card: HTMLElement | null =
+        message.parentElement;
+
+      while (card) {
+        const className =
+          typeof card.className === 'string'
+            ? card.className
+            : '';
+
+        if (
+          className.includes('rounded') &&
+          className.includes('border')
+        ) {
+          card.style.display = 'none';
+          return;
+        }
+
+        card = card.parentElement;
+      }
+    };
+
+    removeBdmReviewCard();
+
+    const observer = new MutationObserver(
+      removeBdmReviewCard,
+    );
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
     });
 
-  const [meta, setMeta] =
-    useState<TaskMeta>({
-      statuses: [],
-      categories: [],
-      priorities: [
-        'LOW',
-        'MEDIUM',
-        'HIGH',
-        'URGENT',
-      ],
-    });
+    return () => observer.disconnect();
+  }, [searchParams]);
+const criticalMode = searchParams.get("critical") === "1";
 
-  const [search, setSearch] =
-    useState('');
+  const linkedCreateMode = searchParams.get("create") === "1";
 
-  const [statusId, setStatusId] =
-    useState('');
+  const linkedProjectId = searchParams.get("projectId") ?? "";
 
+  const linkedDepartmentId = searchParams.get("departmentId") ?? "";
 
-  const [loading, setLoading] =
-    useState(true);
+  const requestedTaskId = searchParams.get("task") ?? "";
 
-  const [saving, setSaving] =
-    useState(false);
+  const openedFromKanban = searchParams.get("from") === "kanban";
 
-  const [error, setError] =
-    useState('');
+  const myTasksMode = searchParams.get("mine") === "1";
 
-  const [modal, setModal] =
-    useState<ModalMode>(null);
+  const isAdmin = Boolean(
+    user?.roles?.includes("ADMIN") && !user?.roles?.includes("SUPER_ADMIN"),
+  );
 
-  const [
-    selectedTask,
-    setSelectedTask,
-  ] = useState<Task | null>(null);
+  const isManager = Boolean(
+    user?.roles?.includes("MANAGER") &&
+    !user?.roles?.includes("ADMIN") &&
+    !user?.roles?.includes("SUPER_ADMIN"),
+  );
 
-  const [
-    pendingWorkflowAction,
-    setPendingWorkflowAction,
-  ] = useState<WorkflowAction | null>(null);
+  const isTeamMember = Boolean(
+    user?.roles?.includes("EMPLOYEE") &&
+    !user?.roles?.includes("MANAGER") &&
+    !user?.roles?.includes("ADMIN") &&
+    !user?.roles?.includes("SUPER_ADMIN"),
+  );
 
-  const [
-    workflowNote,
-    setWorkflowNote,
-  ] = useState('');
-   
-  const canCreate =
-     hasPermission('tasks.create');
+  const showReviewQueue = Boolean(
+    hasPermission("tasks.review") ||
+    hasPermission("tasks.approve") ||
+    user?.roles?.includes("MANAGER") ||
+    user?.roles?.includes("SUPER_ADMIN") ||
+    user?.roles?.includes("ADMIN"),
+  );
 
- const canUpdate =
-  hasPermission('tasks.update');
+  const showReviewSection = Boolean(
+    showReviewQueue &&
+    (myTasksMode || isTeamMember || user?.roles?.includes("SUPER_ADMIN")),
+  );
 
-const canAssign =
-  hasPermission('tasks.assign');
+  const [tasks, setTasks] = useState<Task[]>([]);
 
-const canReview =
-  hasPermission('tasks.review');
+  const [reviewTasks, setReviewTasks] = useState<Task[]>([]);
 
-const canApprove =
-  hasPermission('tasks.approve');
+  const [clients, setClients] = useState<Client[]>([]);
 
-const canDelete =
-  hasPermission('tasks.delete');
+  const [projects, setProjects] = useState<Project[]>([]);
 
-const canComment =
-  hasPermission('comments.create');
+  const [employees, setEmployees] = useState<Employee[]>([]);
 
-const canManageComments =
-  hasPermission('comments.manage');
+  const [departments, setDepartments] = useState<Department[]>([]);
 
-const canUploadFiles =
-  hasPermission('files.upload');
+  const [extraOptions, setExtraOptions] = useState<TaskExtraOptions>({
+    tags: [],
+    dependencyTasks: [],
+  });
 
-const canDownloadFiles =
-  hasPermission('files.download');
+  const [meta, setMeta] = useState<TaskMeta>({
+    statuses: [],
+    categories: [],
+    priorities: ["LOW", "MEDIUM", "HIGH", "URGENT"],
+  });
 
-const canManageFiles =
-  hasPermission('files.manage');
+  const [search, setSearch] = useState("");
 
-  const canViewEmployees =
-  hasPermission('employees.view');
+  const [statusId, setStatusId] = useState("");
 
-  const canViewDepartments =
-  hasPermission('departments.view');
+  const [loading, setLoading] = useState(true);
+
+  const [saving, setSaving] = useState(false);
+
+  const [error, setError] = useState("");
+
+  const [modal, setModal] = useState<ModalMode>(null);
+
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+
+  const [pendingWorkflowAction, setPendingWorkflowAction] =
+    useState<WorkflowAction | null>(null);
+
+  const [workflowNote, setWorkflowNote] = useState("");
+
+  const canCreate = hasPermission("tasks.create");
+
+  const canUpdate = hasPermission("tasks.update");
+
+  const canAssign = hasPermission("tasks.assign");
+
+  const canReview = hasPermission("tasks.review");
+
+  const canApprove = hasPermission("tasks.approve");
+
+  const canDelete = hasPermission("tasks.delete");
+
+  const canComment = hasPermission("comments.create");
+
+  const canManageComments = hasPermission("comments.manage");
+
+  const canUploadFiles = hasPermission("files.upload");
+
+  const canDownloadFiles = hasPermission("files.download");
+
+  const canManageFiles = hasPermission("files.manage");
+
+  const canViewEmployees = hasPermission("employees.view");
+
+  const canViewDepartments = hasPermission("departments.view");
 
   const request = useCallback(
-    async <T,>(
-      path: string,
-      options?: RequestInit,
-    ): Promise<T> => {
-      const response =
-        await authFetch(path, options);
+    async <T,>(path: string, options?: RequestInit): Promise<T> => {
+      const response = await authFetch(path, options);
 
       let result: unknown = null;
 
       try {
-        result =
-          await response.json();
+        result = await response.json();
       } catch {
         result = null;
       }
 
       if (!response.ok) {
-        throw new Error(
-          getErrorMessage(
-            result,
-            'Request failed.',
-          ),
-        );
+        throw new Error(getErrorMessage(result, "Request failed."));
       }
 
       return result as T;
@@ -506,130 +565,107 @@ const canManageFiles =
     [authFetch],
   );
   useEffect(() => {
-  if (
-    (criticalMode || linkedCreateMode) &&
-    canCreate
-  ) {
-    setSelectedTask(null);
-    setModal('create');
-  }
-}, [
-  criticalMode,
-  linkedCreateMode,
-  canCreate,
-]);
+    if ((criticalMode || linkedCreateMode) && canCreate) {
+      setSelectedTask(null);
+      setModal("create");
+    }
+  }, [criticalMode, linkedCreateMode, canCreate]);
 
-  const loadTasks =
-    useCallback(async () => {
-      setLoading(true);
-      setError('');
+  const loadTasks = useCallback(async () => {
+    setLoading(true);
+    setError("");
 
-      try {
-        const params =
-          new URLSearchParams();
+    try {
+      const params = new URLSearchParams();
 
-        params.set('limit', '100');
-        params.set(
-          'sortBy',
-          'createdAt',
-        );
-        params.set(
-          'sortOrder',
-          'desc',
-        );
+      params.set("limit", "100");
+      params.set("sortBy", "createdAt");
+      params.set("sortOrder", "desc");
 
-        if (search.trim()) {
-          params.set(
-            'search',
-            search.trim(),
-          );
-        }
-
-        if (statusId) {
-          params.set(
-            'statusId',
-            statusId,
-          );
-        }
-
-        if (myTasksMode) {
-          params.set(
-            'mine',
-            'true',
-          );
-        }
-
-        const result =
-          await request<TasksResponse>(
-            `/tasks?${params.toString()}`,
-          );
-
-        setTasks(result.data);
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : 'Unable to load tasks.',
-        );
-      } finally {
-        setLoading(false);
+      if (search.trim()) {
+        params.set("search", search.trim());
       }
-    }, [
-      request,
-      search,
-      statusId,
-      myTasksMode,
-    ]);
 
-  const loadOptions =
-    useCallback(async () => {
-      try {
-        const [
-          taskMeta,
-          clientResult,
-          projectResult,
-          employeeResult,
-          departmentResult,
-          extrasResult,
-        ] = await Promise.all([
-          request<TaskMeta>(
-            '/tasks/meta/options',
-          ),
-          request<unknown>(
-            '/clients?limit=100',
-          ),
-          request<unknown>(
-            '/projects?limit=100',
-          ),
-          canViewEmployees
-            ? request<any>('/employees')
-            : Promise.resolve({ data: [] } as any),
-          canViewDepartments
-            ? request<unknown>('/departments?limit=100')
-            : Promise.resolve({ data: [] }),
-          canCreate
-            ? request<TaskExtraOptions>('/task-extras/options')
-            : Promise.resolve({
-                tags: [],
-                dependencyTasks: [],
-              } as TaskExtraOptions),
-        ]);
-
-        setMeta(taskMeta);
-        setClients(unwrapList<Client>(clientResult));
-        setProjects(unwrapList<Project>(projectResult));
-        setEmployees(unwrapList<Employee>(employeeResult));
-        setDepartments(unwrapList<Department>(departmentResult));
-        setExtraOptions(extrasResult);
-      } catch (err) {
-        console.error(err);
+      if (statusId) {
+        params.set("statusId", statusId);
       }
-    }, [
-      request,
-      canViewEmployees,
-      canViewDepartments,
-      canCreate,
-    ]);
+
+      if (myTasksMode) {
+        params.set("mine", "true");
+      }
+
+      const result = await request<TasksResponse>(
+        `/tasks?${params.toString()}`,
+      );
+
+      setTasks(result.data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to load tasks.");
+    } finally {
+      setLoading(false);
+    }
+  }, [request, search, statusId, myTasksMode]);
+
+  const loadReviewTasks = useCallback(async () => {
+    if (!showReviewSection) {
+      setReviewTasks([]);
+      return;
+    }
+
+    try {
+      const params = new URLSearchParams();
+      params.set("limit", "100");
+      params.set("reviewQueue", "true");
+      params.set("sortBy", "updatedAt");
+      params.set("sortOrder", "desc");
+
+      const result = await request<TasksResponse>(
+        `/tasks?${params.toString()}`,
+      );
+
+      setReviewTasks(result.data);
+    } catch {
+      setReviewTasks([]);
+    }
+  }, [request, showReviewSection]);
+
+  const loadOptions = useCallback(async () => {
+    try {
+      const [
+        taskMeta,
+        clientResult,
+        projectResult,
+        employeeResult,
+        departmentResult,
+        extrasResult,
+      ] = await Promise.all([
+        request<TaskMeta>("/tasks/meta/options"),
+        request<unknown>("/clients?limit=100"),
+        request<unknown>("/projects?limit=100"),
+        canViewEmployees || canCreate || canAssign
+          ? request<any>("/employees/team-directory?employmentStatus=ACTIVE")
+          : Promise.resolve({ data: [] } as any),
+        canViewDepartments
+          ? request<unknown>("/departments?limit=100")
+          : Promise.resolve({ data: [] }),
+        canCreate
+          ? request<TaskExtraOptions>("/task-extras/options")
+          : Promise.resolve({
+              tags: [],
+              dependencyTasks: [],
+            } as TaskExtraOptions),
+      ]);
+
+      setMeta(taskMeta);
+      setClients(unwrapList<Client>(clientResult));
+      setProjects(unwrapList<Project>(projectResult));
+      setEmployees(unwrapList<Employee>(employeeResult));
+      setDepartments(unwrapList<Department>(departmentResult));
+      setExtraOptions(extrasResult);
+    } catch (err) {
+      console.error(err);
+    }
+  }, [request, canViewEmployees, canCreate, canAssign, canViewDepartments]);
 
   useEffect(() => {
     void loadOptions();
@@ -642,22 +678,16 @@ const canManageFiles =
 
     let active = true;
 
-    void request<Task>(
-      `/tasks/${requestedTaskId}`,
-    )
+    void request<Task>(`/tasks/${requestedTaskId}`)
       .then((fresh) => {
         if (!active) return;
         setSelectedTask(fresh);
-        setError('');
-        setModal('view');
+        setError("");
+        setModal("view");
       })
       .catch((err) => {
         if (!active) return;
-        setError(
-          err instanceof Error
-            ? err.message
-            : 'Unable to load task.',
-        );
+        setError(err instanceof Error ? err.message : "Unable to load task.");
       });
 
     return () => {
@@ -666,48 +696,39 @@ const canManageFiles =
   }, [request, requestedTaskId]);
 
   useEffect(() => {
-    const timer =
-      setTimeout(() => {
-        void loadTasks();
-      }, 250);
+    const timer = setTimeout(() => {
+      void loadTasks();
+    }, 250);
 
-    return () =>
-      clearTimeout(timer);
+    return () => clearTimeout(timer);
   }, [loadTasks]);
+
+  useEffect(() => {
+    void loadReviewTasks();
+  }, [loadReviewTasks]);
 
   const openCreate = () => {
     setSelectedTask(null);
-    setError('');
-    setModal('create');
+    setError("");
+    setModal("create");
   };
 
-  const openEdit = (
-    task: Task,
-  ) => {
+  const openEdit = (task: Task) => {
     setSelectedTask(task);
-    setError('');
-    setModal('edit');
+    setError("");
+    setModal("edit");
   };
 
-  const openView = async (
-    task: Task,
-  ) => {
-    setError('');
+  const openView = async (task: Task) => {
+    setError("");
 
     try {
-      const fresh =
-        await request<Task>(
-          `/tasks/${task.id}`,
-        );
+      const fresh = await request<Task>(`/tasks/${task.id}`);
 
       setSelectedTask(fresh);
-      setModal('view');
+      setModal("view");
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Unable to load task.',
-      );
+      setError(err instanceof Error ? err.message : "Unable to load task.");
     }
   };
 
@@ -715,128 +736,107 @@ const canManageFiles =
     if (!selectedTask) return;
 
     try {
-      const fresh = await request<Task>(
-        `/tasks/${selectedTask.id}`,
-      );
+      const fresh = await request<Task>(`/tasks/${selectedTask.id}`);
       setSelectedTask(fresh);
       await loadTasks();
+      await loadReviewTasks();
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Unable to refresh task.',
-      );
+      setError(err instanceof Error ? err.message : "Unable to refresh task.");
     }
   };
 
   const closeModal = () => {
-  setModal(null);
-  setSelectedTask(null);
-  setError('');
+    setModal(null);
+    setSelectedTask(null);
+    setError("");
 
-  if (openedFromKanban) {
-    router.replace('/kanban');
-  }
-};
+    if (openedFromKanban) {
+      router.replace("/kanban");
+    }
+  };
 
-const openWorkflowAction = (
-  action: WorkflowAction,
-) => {
-  setWorkflowNote('');
-  setPendingWorkflowAction(action);
-};
+  const openWorkflowAction = (action: WorkflowAction) => {
+    setWorkflowNote("");
+    setPendingWorkflowAction(action);
+  };
 
-const runWorkflowAction = async () => {
-  if (!selectedTask || !pendingWorkflowAction) {
-    return;
-  }
+  const runWorkflowAction = async () => {
+    if (!selectedTask || !pendingWorkflowAction) {
+      return;
+    }
 
-  setSaving(true);
-  setError('');
+    const workflowAction = pendingWorkflowAction;
 
-  try {
-    const updatedTask =
-      await request<Task>(
-        `/tasks/${selectedTask.id}/${pendingWorkflowAction}`,
+    setSaving(true);
+    setError("");
+
+    try {
+      const updatedTask = await request<Task>(
+        `/tasks/${selectedTask.id}/${workflowAction}`,
         {
-          method: 'POST',
+          method: "POST",
           headers: {
-            'Content-Type':
-              'application/json',
+            "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            note:
-              workflowNote.trim() ||
-              undefined,
+            note: workflowNote.trim() || undefined,
           }),
         },
       );
 
-    setSelectedTask(updatedTask);
-    setPendingWorkflowAction(null);
-    setWorkflowNote('');
+      setSelectedTask(updatedTask);
+      setPendingWorkflowAction(null);
+      setWorkflowNote("");
 
-    await loadTasks();
-  } catch (err) {
-    setError(
-      err instanceof Error
-        ? err.message
-        : 'Unable to update workflow.',
-    );
-  } finally {
-    setSaving(false);
-  }
-};
+      await loadTasks();
+      await loadReviewTasks();
 
-  const createTask = async (
-    event: FormEvent<HTMLFormElement>,
-  ) => {
+      if (workflowAction === "start-task" && openedFromKanban) {
+        setModal(null);
+        setSelectedTask(null);
+        router.replace("/kanban");
+      }
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Unable to update workflow.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const createTask = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
 
-    const assigneeIds = form
-      .getAll('assigneeIds')
-      .map(String)
-      .filter(Boolean);
+    const assigneeIds = form.getAll("assigneeIds").map(String).filter(Boolean);
 
     const collaboratorIds = form
-      .getAll('collaboratorIds')
+      .getAll("collaboratorIds")
       .map(String)
       .filter(Boolean);
 
-    const reviewerIds = form
-      .getAll('reviewerIds')
-      .map(String)
-      .filter(Boolean);
+    const reviewerIds = form.getAll("reviewerIds").map(String).filter(Boolean);
 
-    const primaryAssigneeId = String(
-      form.get('primaryAssigneeId') ?? '',
-    );
+    const primaryAssigneeId = String(form.get("primaryAssigneeId") ?? "");
 
-    const estimatedHours = String(
-      form.get('estimatedHours') ?? '',
-    ).trim();
+    const estimatedHours = String(form.get("estimatedHours") ?? "").trim();
 
-    const subtaskTitles = form
-      .getAll('subtaskTitle')
-      .map(String);
-    const subtaskAssignees = form
-      .getAll('subtaskAssigneeId')
-      .map(String);
+    const subtaskTitles = form.getAll("subtaskTitle").map(String);
+    const subtaskAssignees = form.getAll("subtaskAssigneeId").map(String);
 
     const subtasks = subtaskTitles
       .map((title, index) => ({
         title: title.trim(),
-        assignedEmployeeId:
-          subtaskAssignees[index] || undefined,
+        assignedEmployeeId: subtaskAssignees[index] || undefined,
         sortOrder: index,
       }))
       .filter((item) => item.title);
 
     const checklist = form
-      .getAll('checklistItem')
+      .getAll("checklistItem")
       .map(String)
       .map((title, index) => ({
         title: title.trim(),
@@ -844,99 +844,78 @@ const runWorkflowAction = async () => {
       }))
       .filter((item) => item.title);
 
-    const tagNames = String(
-      form.get('tagNames') ?? '',
-    )
-      .split(',')
+    const tagNames = String(form.get("tagNames") ?? "")
+      .split(",")
       .map((item) => item.trim())
       .filter(Boolean);
 
     const dependencyIds = form
-      .getAll('dependencyIds')
+      .getAll("dependencyIds")
       .map(String)
       .filter(Boolean);
 
     const attachments = form
-      .getAll('attachments')
+      .getAll("attachments")
       .filter(
-        (value): value is File =>
-          value instanceof File && value.size > 0,
+        (value): value is File => value instanceof File && value.size > 0,
       );
 
-    const voiceNoteValue = form.get('voiceNote');
+    const voiceNoteValue = form.get("voiceNote");
     const voiceNote =
       voiceNoteValue instanceof File && voiceNoteValue.size > 0
         ? voiceNoteValue
         : null;
 
     const voiceDurationRaw = String(
-      form.get('voiceDurationSeconds') ?? '',
+      form.get("voiceDurationSeconds") ?? "",
     ).trim();
     const voiceDurationSeconds = voiceDurationRaw
       ? Math.max(1, Math.min(600, Number(voiceDurationRaw) || 1))
       : null;
 
-    const voiceTranscript = String(
-      form.get('voiceTranscript') ?? '',
-    ).trim();
+    const voiceTranscript = String(form.get("voiceTranscript") ?? "").trim();
 
     const voiceTranscriptLanguage = String(
-      form.get('voiceTranscriptLanguage') ?? '',
+      form.get("voiceTranscriptLanguage") ?? "",
     ).trim();
 
-    const recurringEnabled =
-      form.get('recurringEnabled') === 'on';
+    const recurringEnabled = form.get("recurringEnabled") === "on";
 
     setSaving(true);
-    setError('');
+    setError("");
 
     let createdTask: Task | null = null;
 
     try {
-      createdTask = await request<Task>('/tasks', {
-        method: 'POST',
+      createdTask = await request<Task>("/tasks", {
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          title: String(form.get('title') ?? ''),
-          description:
-            String(form.get('description') ?? '') || undefined,
-          clientId: String(form.get('clientId') ?? ''),
-          projectId: String(form.get('projectId') ?? ''),
-          departmentId:
-            String(form.get('departmentId') ?? '') || undefined,
-          categoryId:
-            String(form.get('categoryId') ?? '') || undefined,
-          statusId:
-            String(form.get('statusId') ?? '') || undefined,
-          priority: 'HIGH',
+          title: String(form.get("title") ?? ""),
+          description: String(form.get("description") ?? "") || undefined,
+          clientId: String(form.get("clientId") ?? ""),
+          projectId: String(form.get("projectId") ?? ""),
+          departmentId: String(form.get("departmentId") ?? "") || undefined,
+          categoryId: String(form.get("categoryId") ?? "") || undefined,
+          statusId: String(form.get("statusId") ?? "") || undefined,
+          priority: "HIGH",
           dueAt:
-            normalizeDateTime(
-              String(form.get('dueAt') ?? ''),
-            ) || undefined,
-          estimatedHours: estimatedHours
-            ? Number(estimatedHours)
-            : undefined,
-          internalNotes:
-            String(form.get('internalNotes') ?? '') || undefined,
-          isDraft: form.get('isDraft') === 'on',
-          isCritical: form.get('isCritical') === 'on',
-          notifyAssignee:
-            form.get('notifyAssignee') === 'on',
-          primaryAssigneeId:
-            primaryAssigneeId || undefined,
+            normalizeDateTime(String(form.get("dueAt") ?? "")) || undefined,
+          estimatedHours: estimatedHours ? Number(estimatedHours) : undefined,
+          internalNotes: String(form.get("internalNotes") ?? "") || undefined,
+          isDraft: form.get("isDraft") === "on",
+          isCritical: form.get("isCritical") === "on",
+          notifyAssignee: form.get("notifyAssignee") === "on",
+          primaryAssigneeId: primaryAssigneeId || undefined,
           assigneeIds,
           collaboratorIds,
           reviewerIds,
         }),
       });
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Task creation failed.',
-      );
+      setError(err instanceof Error ? err.message : "Task creation failed.");
       setSaving(false);
       return;
     }
@@ -948,36 +927,30 @@ const runWorkflowAction = async () => {
         tagNames.length ||
         dependencyIds.length
       ) {
-        await request(
-          `/task-extras/task/${createdTask.id}/setup`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              subtasks,
-              checklist,
-              tagNames,
-              dependencyIds,
-            }),
+        await request(`/task-extras/task/${createdTask.id}/setup`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
           },
-        );
+          body: JSON.stringify({
+            subtasks,
+            checklist,
+            tagNames,
+            dependencyIds,
+          }),
+        });
       }
 
       if (attachments.length && canUploadFiles) {
         for (const file of attachments) {
           const uploadForm = new FormData();
-          uploadForm.append('file', file);
-          uploadForm.append('purpose', 'REFERENCE');
+          uploadForm.append("file", file);
+          uploadForm.append("purpose", "REFERENCE");
 
-          const response = await authFetch(
-            `/files/task/${createdTask.id}`,
-            {
-              method: 'POST',
-              body: uploadForm,
-            },
-          );
+          const response = await authFetch(`/files/task/${createdTask.id}`, {
+            method: "POST",
+            body: uploadForm,
+          });
 
           if (!response.ok) {
             let uploadError: unknown = null;
@@ -985,10 +958,7 @@ const runWorkflowAction = async () => {
               uploadError = await response.json();
             } catch {}
             throw new Error(
-              getErrorMessage(
-                uploadError,
-                `Unable to upload ${file.name}.`,
-              ),
+              getErrorMessage(uploadError, `Unable to upload ${file.name}.`),
             );
           }
         }
@@ -996,23 +966,20 @@ const runWorkflowAction = async () => {
 
       if (voiceNote && canUploadFiles) {
         const voiceForm = new FormData();
-        voiceForm.append('file', voiceNote);
+        voiceForm.append("file", voiceNote);
 
         if (voiceTranscriptLanguage) {
-          voiceForm.append('language', voiceTranscriptLanguage);
+          voiceForm.append("language", voiceTranscriptLanguage);
         }
 
         if (voiceDurationSeconds !== null) {
-          voiceForm.append(
-            'durationSeconds',
-            String(voiceDurationSeconds),
-          );
+          voiceForm.append("durationSeconds", String(voiceDurationSeconds));
         }
 
         const response = await authFetch(
           `/voice-notes/task/${createdTask.id}`,
           {
-            method: 'POST',
+            method: "POST",
             body: voiceForm,
           },
         );
@@ -1025,7 +992,7 @@ const runWorkflowAction = async () => {
           throw new Error(
             getErrorMessage(
               voiceError,
-              'Task created, but the voice note could not be uploaded.',
+              "Task created, but the voice note could not be uploaded.",
             ),
           );
         }
@@ -1035,72 +1002,53 @@ const runWorkflowAction = async () => {
         } | null = null;
 
         try {
-          uploadedVoice =
-            (await response.json()) as {
-              id?: string;
-            };
+          uploadedVoice = (await response.json()) as {
+            id?: string;
+          };
         } catch {}
 
-        if (
-          voiceTranscript &&
-          uploadedVoice?.id
-        ) {
-          await request(
-            `/voice-notes/${uploadedVoice.id}/transcript`,
-            {
-              method: 'PATCH',
-              headers: {
-                'Content-Type':
-                  'application/json',
-              },
-              body: JSON.stringify({
-                transcript:
-                  voiceTranscript,
-                language:
-                  voiceTranscriptLanguage ||
-                  undefined,
-              }),
+        if (voiceTranscript && uploadedVoice?.id) {
+          await request(`/voice-notes/${uploadedVoice.id}/transcript`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
             },
-          );
+            body: JSON.stringify({
+              transcript: voiceTranscript,
+              language: voiceTranscriptLanguage || undefined,
+            }),
+          });
         }
       }
 
       if (recurringEnabled) {
         const recurrenceStart =
-          normalizeDateTime(
-            String(form.get('recurrenceStartAt') ?? ''),
-          ) ||
-          normalizeDateTime(
-            String(form.get('dueAt') ?? ''),
-          ) ||
+          normalizeDateTime(String(form.get("recurrenceStartAt") ?? "")) ||
+          normalizeDateTime(String(form.get("dueAt") ?? "")) ||
           new Date().toISOString();
 
-        await request('/recurring-tasks', {
-          method: 'POST',
+        await request("/recurring-tasks", {
+          method: "POST",
           headers: {
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
           },
           body: JSON.stringify({
             templateTaskId: createdTask.id,
-            frequency: String(
-              form.get('recurrenceFrequency') ?? 'WEEKLY',
-            ),
+            frequency: String(form.get("recurrenceFrequency") ?? "WEEKLY"),
             interval: Math.max(
               1,
-              Number(form.get('recurrenceInterval') ?? 1) || 1,
+              Number(form.get("recurrenceInterval") ?? 1) || 1,
             ),
             weekdays: form
-              .getAll('recurrenceWeekdays')
+              .getAll("recurrenceWeekdays")
               .map((value) => Number(value)),
-            dayOfMonth:
-              String(form.get('recurrenceDayOfMonth') ?? '').trim()
-                ? Number(form.get('recurrenceDayOfMonth'))
-                : undefined,
+            dayOfMonth: String(form.get("recurrenceDayOfMonth") ?? "").trim()
+              ? Number(form.get("recurrenceDayOfMonth"))
+              : undefined,
             startAt: recurrenceStart,
             endAt:
-              normalizeDateTime(
-                String(form.get('recurrenceEndAt') ?? ''),
-              ) || undefined,
+              normalizeDateTime(String(form.get("recurrenceEndAt") ?? "")) ||
+              undefined,
           }),
         });
       }
@@ -1111,16 +1059,14 @@ const runWorkflowAction = async () => {
     } catch (err) {
       await loadTasks();
       try {
-        const fresh = await request<Task>(
-          `/tasks/${createdTask.id}`,
-        );
+        const fresh = await request<Task>(`/tasks/${createdTask.id}`);
         setSelectedTask(fresh);
-        setModal('view');
+        setModal("view");
       } catch {}
 
       setError(
         `Task was created, but additional setup needs attention: ${
-          err instanceof Error ? err.message : 'Setup failed.'
+          err instanceof Error ? err.message : "Setup failed."
         }`,
       );
     } finally {
@@ -1128,136 +1074,73 @@ const runWorkflowAction = async () => {
     }
   };
 
-  const updateTask = async (
-    event: FormEvent<HTMLFormElement>,
-  ) => {
+  const updateTask = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     if (!selectedTask) {
       return;
     }
 
-    const form =
-      new FormData(
-        event.currentTarget,
-      );
+    const form = new FormData(event.currentTarget);
 
     const primaryAssigneeId = String(
-      form.get('primaryAssigneeId') ?? '',
+      form.get("primaryAssigneeId") ?? "",
     ).trim();
 
     const selectedAssigneeIds = Array.from(
-      new Set(
-        form
-          .getAll('assigneeIds')
-          .map(String)
-          .filter(Boolean),
-      ),
+      new Set(form.getAll("assigneeIds").map(String).filter(Boolean)),
     );
 
-    if (
-      primaryAssigneeId &&
-      !selectedAssigneeIds.includes(primaryAssigneeId)
-    ) {
+    if (primaryAssigneeId && !selectedAssigneeIds.includes(primaryAssigneeId)) {
       selectedAssigneeIds.push(primaryAssigneeId);
     }
 
     const selectedCollaboratorIds = Array.from(
-      new Set(
-        form
-          .getAll('collaboratorIds')
-          .map(String)
-          .filter(Boolean),
-      ),
+      new Set(form.getAll("collaboratorIds").map(String).filter(Boolean)),
     );
 
     const selectedReviewerIds = Array.from(
-      new Set(
-        form
-          .getAll('reviewerIds')
-          .map(String)
-          .filter(Boolean),
-      ),
+      new Set(form.getAll("reviewerIds").map(String).filter(Boolean)),
     );
 
     setSaving(true);
-    setError('');
+    setError("");
 
     try {
-      await request(
-        `/tasks/${selectedTask.id}`,
-        {
-          method: 'PATCH',
+      await request(`/tasks/${selectedTask.id}`, {
+        method: "PATCH",
 
-          headers: {
-            'Content-Type':
-              'application/json',
-          },
-
-          body: JSON.stringify({
-            title: String(
-              form.get('title') ??
-                '',
-            ),
-
-            description:
-              String(
-                form.get(
-                  'description',
-                ) ?? '',
-              ),
-
-            clientId: String(
-              form.get('clientId') ??
-                '',
-            ),
-
-            projectId: String(
-              form.get('projectId') ??
-                '',
-            ),
-
-            departmentId:
-              String(
-                form.get(
-                  'departmentId',
-                ) ?? '',
-              ) || null,
-
-           priority: 'HIGH',
-
-            dueAt:
-              normalizeDateTime(
-                String(
-                  form.get(
-                    'dueAt',
-                  ) ?? '',
-                ),
-              ) || null,
-
-            internalNotes:
-              String(
-                form.get(
-                  'internalNotes',
-                ) ?? '',
-              ),
-
-            isDraft:
-              form.get(
-                'isDraft',
-              ) === 'on',
-
-            isCritical:
-              form.get(
-                'isCritical',
-              ) === 'on',
-          }),
+        headers: {
+          "Content-Type": "application/json",
         },
-      );
+
+        body: JSON.stringify({
+          title: String(form.get("title") ?? ""),
+
+          description: String(form.get("description") ?? ""),
+
+          clientId: String(form.get("clientId") ?? ""),
+
+          projectId: String(form.get("projectId") ?? ""),
+
+          departmentId: String(form.get("departmentId") ?? "") || null,
+
+          priority: "HIGH",
+
+          dueAt: normalizeDateTime(String(form.get("dueAt") ?? "")) || null,
+
+          internalNotes: String(form.get("internalNotes") ?? ""),
+
+          isDraft: form.get("isDraft") === "on",
+
+          isCritical: form.get("isCritical") === "on",
+        }),
+      });
 
       if (canAssign) {
-        const existingAssigneeIds =
-          selectedTask.assignees.map((item) => item.employeeId);
+        const existingAssigneeIds = selectedTask.assignees.map(
+          (item) => item.employeeId,
+        );
         const existingCollaboratorIds =
           selectedTask.collaborators?.map((item) => item.employeeId) ?? [];
         const existingReviewerIds =
@@ -1282,22 +1165,20 @@ const runWorkflowAction = async () => {
         const currentPrimaryId =
           selectedTask.assignees.find((item) => item.isPrimary)?.employeeId ??
           selectedTask.assignees[0]?.employeeId ??
-          '';
+          "";
 
         const assigneeSetChanged =
           existingAssigneeIds.length !== selectedAssigneeIds.length ||
-          existingAssigneeIds.some(
-            (id) => !selectedAssigneeIds.includes(id),
-          );
+          existingAssigneeIds.some((id) => !selectedAssigneeIds.includes(id));
 
         if (
           selectedAssigneeIds.length > 0 &&
           (assigneeSetChanged || primaryAssigneeId !== currentPrimaryId)
         ) {
           await request(`/tasks/${selectedTask.id}/assignees`, {
-            method: 'POST',
+            method: "POST",
             headers: {
-              'Content-Type': 'application/json',
+              "Content-Type": "application/json",
             },
             body: JSON.stringify({
               employeeIds: selectedAssigneeIds,
@@ -1308,9 +1189,9 @@ const runWorkflowAction = async () => {
 
         if (collaboratorsToAdd.length > 0) {
           await request(`/tasks/${selectedTask.id}/collaborators`, {
-            method: 'POST',
+            method: "POST",
             headers: {
-              'Content-Type': 'application/json',
+              "Content-Type": "application/json",
             },
             body: JSON.stringify({ employeeIds: collaboratorsToAdd }),
           });
@@ -1318,9 +1199,9 @@ const runWorkflowAction = async () => {
 
         if (reviewersToAdd.length > 0) {
           await request(`/tasks/${selectedTask.id}/reviewers`, {
-            method: 'POST',
+            method: "POST",
             headers: {
-              'Content-Type': 'application/json',
+              "Content-Type": "application/json",
             },
             body: JSON.stringify({ employeeIds: reviewersToAdd }),
           });
@@ -1328,9 +1209,9 @@ const runWorkflowAction = async () => {
 
         if (assigneesToRemove.length > 0) {
           await request(`/tasks/${selectedTask.id}/assignees`, {
-            method: 'DELETE',
+            method: "DELETE",
             headers: {
-              'Content-Type': 'application/json',
+              "Content-Type": "application/json",
             },
             body: JSON.stringify({ employeeIds: assigneesToRemove }),
           });
@@ -1338,9 +1219,9 @@ const runWorkflowAction = async () => {
 
         if (collaboratorsToRemove.length > 0) {
           await request(`/tasks/${selectedTask.id}/collaborators`, {
-            method: 'DELETE',
+            method: "DELETE",
             headers: {
-              'Content-Type': 'application/json',
+              "Content-Type": "application/json",
             },
             body: JSON.stringify({ employeeIds: collaboratorsToRemove }),
           });
@@ -1348,9 +1229,9 @@ const runWorkflowAction = async () => {
 
         if (reviewersToRemove.length > 0) {
           await request(`/tasks/${selectedTask.id}/reviewers`, {
-            method: 'DELETE',
+            method: "DELETE",
             headers: {
-              'Content-Type': 'application/json',
+              "Content-Type": "application/json",
             },
             body: JSON.stringify({ employeeIds: reviewersToRemove }),
           });
@@ -1361,47 +1242,34 @@ const runWorkflowAction = async () => {
 
       await loadTasks();
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : 'Task update failed.',
-      );
+      setError(err instanceof Error ? err.message : "Task update failed.");
     } finally {
       setSaving(false);
     }
   };
 
-  const removeTask = async (
-    task: Task,
-  ) => {
-    const confirmed =
-      await appDialog.confirm({
-        title: 'Delete task',
-        message: `Delete "${task.title}"?`,
-        confirmLabel: 'Delete',
-        tone: 'danger',
-      });
+  const removeTask = async (task: Task) => {
+    const confirmed = await appDialog.confirm({
+      title: "Delete task",
+      message: `Delete "${task.title}"?`,
+      confirmLabel: "Delete",
+      tone: "danger",
+    });
 
     if (!confirmed) {
       return;
     }
 
     try {
-      await request(
-        `/tasks/${task.id}`,
-        {
-          method: 'DELETE',
-        },
-      );
+      await request(`/tasks/${task.id}`, {
+        method: "DELETE",
+      });
 
       await loadTasks();
     } catch (err) {
       await appDialog.alert({
-        title: 'Unable to delete task',
-        message:
-          err instanceof Error
-            ? err.message
-            : 'Unable to delete task.',
+        title: "Unable to delete task",
+        message: err instanceof Error ? err.message : "Unable to delete task.",
       });
     }
   };
@@ -1411,17 +1279,14 @@ const runWorkflowAction = async () => {
       <div className="flex flex-col justify-between gap-5 md:flex-row md:items-end">
         <div>
           <h1 className="mt-1 text-3xl font-bold tracking-tight text-slate-950">
-            {myTasksMode || isTeamMember ? 'My Tasks' : 'Tasks'}
+            {myTasksMode || isTeamMember ? "My Tasks" : "Tasks"}
           </h1>
-
         </div>
 
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() =>
-              void loadTasks()
-            }
+            onClick={() => void loadTasks()}
             className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700"
           >
             <RefreshCcw className="h-4 w-4" />
@@ -1452,18 +1317,60 @@ const runWorkflowAction = async () => {
         </div>
       </div>
 
+      {showReviewSection && (
+        <div className="mt-6 overflow-hidden rounded-2xl border border-violet-100 bg-white shadow-sm">
+          <div className="flex items-center justify-between border-b border-violet-100 bg-violet-50/60 px-4 py-3">
+            <div>
+              <h2 className="text-base font-bold text-slate-950">
+                Review Tasks
+              </h2>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Tasks waiting for your review or approval.
+              </p>
+            </div>
+            <span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-bold text-violet-700">
+              {reviewTasks.length}
+            </span>
+          </div>
+
+          {reviewTasks.length ? (
+            <TasksTable
+              tasks={reviewTasks}
+              canUpdate={canUpdate}
+              canDelete={false}
+              onView={openView}
+              onEdit={openEdit}
+              onDelete={removeTask}
+            />
+          ) : (
+            <div className="px-4 py-5 text-sm text-slate-500">
+              No tasks are waiting for review.
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        {showReviewSection && (
+          <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50/70 px-4 py-3">
+            <div>
+              <h2 className="text-base font-bold text-slate-950">My Tasks</h2>
+              <p className="mt-0.5 text-xs text-slate-500">
+                Work assigned to you for execution.
+              </p>
+            </div>
+            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-700">
+              {tasks.length}
+            </span>
+          </div>
+        )}
         <div className="grid gap-3 border-b border-slate-100 p-4 md:grid-cols-[1fr_auto]">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
 
             <input
               value={search}
-              onChange={(event) =>
-                setSearch(
-                  event.target.value,
-                )
-              }
+              onChange={(event) => setSearch(event.target.value)}
               placeholder="Search tasks..."
               className="w-full rounded-xl border border-slate-200 py-2.5 pl-10 pr-4 text-sm outline-none focus:border-slate-400"
             />
@@ -1471,29 +1378,17 @@ const runWorkflowAction = async () => {
 
           <select
             value={statusId}
-            onChange={(event) =>
-              setStatusId(
-                event.target.value,
-              )
-            }
+            onChange={(event) => setStatusId(event.target.value)}
             className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm"
           >
-            <option value="">
-              All Statuses
-            </option>
+            <option value="">All Statuses</option>
 
-            {meta.statuses.map(
-              (status) => (
-                <option
-                  key={status.id}
-                  value={status.id}
-                >
-                  {status.name}
-                </option>
-              ),
-            )}
+            {meta.statuses.map((status) => (
+              <option key={status.id} value={status.id}>
+                {status.name}
+              </option>
+            ))}
           </select>
-
         </div>
 
         {error && !modal && (
@@ -1508,7 +1403,18 @@ const runWorkflowAction = async () => {
           </div>
         ) : (
           <TasksTable
-            tasks={tasks}
+            tasks={
+  searchParams.get('mine') === '1'
+    ? tasks.filter(
+        (task) =>
+          ![
+            'REVIEW',
+            'INTERNAL_REVIEW',
+            'CLIENT_REVIEW',
+          ].includes(task.status.code),
+      )
+    : tasks
+}
             canUpdate={canUpdate}
             canDelete={canDelete}
             onView={openView}
@@ -1518,182 +1424,148 @@ const runWorkflowAction = async () => {
         )}
       </div>
 
-      {modal === 'create' && (
-        <Modal
-          title="Create Task"
-          error={error}
-          onClose={closeModal}
-        >
+      {modal === "create" && (
+        <Modal title="Create Task" error={error} onClose={closeModal}>
           <TaskForm
-  meta={meta}
-  clients={clients}
-  projects={projects}
-  employees={employees}
-  departments={departments}
-  extraOptions={extraOptions}
-  availableTasks={extraOptions.dependencyTasks}
-  canUploadFiles={canUploadFiles}
-  canAssignPeople={canAssign}
-  saving={saving}
-  onSubmit={createTask}
-  criticalDefault={criticalMode}
-  initialProjectId={linkedProjectId}
-  initialDepartmentId={linkedDepartmentId}
-/>
+            meta={meta}
+            clients={clients}
+            projects={projects}
+            employees={employees}
+            departments={departments}
+            extraOptions={extraOptions}
+            availableTasks={extraOptions.dependencyTasks}
+            canUploadFiles={canUploadFiles}
+            canAssignPeople={canAssign}
+            saving={saving}
+            onSubmit={createTask}
+            criticalDefault={criticalMode}
+            initialProjectId={linkedProjectId}
+            initialDepartmentId={linkedDepartmentId}
+          />
         </Modal>
       )}
 
-      {modal === 'edit' &&
-        selectedTask && (
-          <Modal
-            title="Edit Task"
-            error={error}
-            onClose={closeModal}
-          >
-            <TaskForm
-              task={selectedTask}
-              meta={meta}
-              clients={clients}
-              projects={projects}
-              employees={employees}
-              departments={departments}
-              extraOptions={extraOptions}
-              availableTasks={extraOptions.dependencyTasks}
-              canUploadFiles={canUploadFiles}
-              canAssignPeople={canAssign}
-              saving={saving}
-              onSubmit={updateTask}
-            />
-          </Modal>
-        )}
+      {modal === "edit" && selectedTask && (
+        <Modal title="Edit Task" error={error} onClose={closeModal}>
+          <TaskForm
+            task={selectedTask}
+            meta={meta}
+            clients={clients}
+            projects={projects}
+            employees={employees}
+            departments={departments}
+            extraOptions={extraOptions}
+            availableTasks={extraOptions.dependencyTasks}
+            canUploadFiles={canUploadFiles}
+            canAssignPeople={canAssign}
+            saving={saving}
+            onSubmit={updateTask}
+          />
+        </Modal>
+      )}
 
-      {modal === 'view' &&
-        selectedTask && (
-          <Modal
-            title={selectedTask.title}
-            error={error}
-            onClose={closeModal}
-          >
-            <TaskDetails
-              task={selectedTask}
-            />
+      {modal === "view" && selectedTask && (
+        <Modal title={selectedTask.title} error={error} onClose={closeModal}>
+          {selectedTask.viewer?.canWork &&
+          (selectedTask.status.code === "TODO" ||
+            (selectedTask.status.code === "IN_PROGRESS" && canUpdate)) ? (
+            <div className="mb-4 flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              {selectedTask.status.code === "TODO" && (
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => openWorkflowAction("start-task")}
+                  className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {saving ? "Processing..." : "Start Task"}
+                </button>
+              )}
 
+              {selectedTask.status.code === "IN_PROGRESS" && canUpdate && (
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => openWorkflowAction("submit-review")}
+                  className="rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {saving ? "Processing..." : "Submit for Review"}
+                </button>
+              )}
+            </div>
+          ) : null}
 
-            <TaskExtrasPanel
-              task={selectedTask}
-              employees={employees}
-              canManage={canCreate}
-              canUpdate={canUpdate}
-              onChanged={refreshSelectedTask}
-            />
+          <div className="mb-4 flex flex-wrap gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 empty:hidden">
+            {["REVIEW", "INTERNAL_REVIEW", "CLIENT_REVIEW"].includes(
+              selectedTask.status.code,
+            ) &&
+              canReview && (
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => openWorkflowAction("request-changes")}
+                  className="rounded-xl border border-amber-300 px-4 py-2.5 text-sm font-semibold text-amber-700 disabled:opacity-50"
+                >
+                  Request Changes
+                </button>
+              )}
 
-            <TaskVoiceNotesPanel
-              taskId={selectedTask.id}
-              canUpload={canUploadFiles}
-              canDownload={canDownloadFiles}
-              canManageFiles={canManageFiles}
-              onChanged={() => {
-                void refreshSelectedTask();
-              }}
-            />
+            {["REVIEW", "CLIENT_REVIEW"].includes(selectedTask.status.code) &&
+              canApprove && (
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => openWorkflowAction("approve")}
+                  className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {saving ? "Processing..." : "Approve Task"}
+                </button>
+              )}
 
-            <TaskCommunicationPanel
-              taskId={selectedTask.id}
-              canComment={canComment}
-              canManageComments={canManageComments}
-              canUpload={canUploadFiles}
-              canDownload={canDownloadFiles}
-              canManageFiles={canManageFiles}
-              onChanged={() => {
-                void refreshSelectedTask();
-              }}
-            />
+            {selectedTask.status.code === "CHANGES_REQUESTED" && canUpdate && (
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => openWorkflowAction("resume-work")}
+                className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                Resume Work
+              </button>
+            )}
+          </div>
 
-            <div className="mt-6 flex flex-wrap gap-3 border-t border-slate-200 pt-5">
+          <TaskDetails task={selectedTask} />
 
-  {selectedTask.status.code ===
-    'IN_PROGRESS' &&
-    canUpdate && (
-      <button
-        type="button"
-        disabled={saving}
-        onClick={() =>
-          openWorkflowAction(
-            'submit-review',
-          )
-        }
-        className="rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
-      >
-        {saving
-          ? 'Processing...'
-          : 'Submit for Review'}
-      </button>
-    )}
+          <TaskExtrasPanel
+            task={selectedTask}
+            employees={employees}
+            canManage={canCreate}
+            canUpdate={canUpdate}
+            onChanged={refreshSelectedTask}
+          />
 
-  {[
-    'REVIEW',
-    'INTERNAL_REVIEW',
-    'CLIENT_REVIEW',
-  ].includes(
-    selectedTask.status.code,
-  ) &&
-    canReview && (
-      <button
-        type="button"
-        disabled={saving}
-        onClick={() =>
-          openWorkflowAction(
-            'request-changes',
-          )
-        }
-        className="rounded-xl border border-amber-300 px-4 py-2.5 text-sm font-semibold text-amber-700 disabled:opacity-50"
-      >
-        Request Changes
-      </button>
-    )}
+          <TaskVoiceNotesPanel
+            taskId={selectedTask.id}
+            canUpload={canUploadFiles}
+            canDownload={canDownloadFiles}
+            canManageFiles={canManageFiles}
+            onChanged={() => {
+              void refreshSelectedTask();
+            }}
+          />
 
-  {[
-    'REVIEW',
-    'CLIENT_REVIEW',
-  ].includes(
-    selectedTask.status.code,
-  ) &&
-    canApprove && (
-      <button
-        type="button"
-        disabled={saving}
-        onClick={() =>
-          openWorkflowAction(
-            'approve',
-          )
-        }
-        className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
-      >
-        {saving
-          ? 'Processing...'
-          : 'Approve Task'}
-      </button>
-    )}
-
-  {selectedTask.status.code ===
-    'CHANGES_REQUESTED' &&
-    canUpdate && (
-      <button
-        type="button"
-        disabled={saving}
-        onClick={() =>
-          openWorkflowAction(
-            'resume-work',
-          )
-        }
-        className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
-      >
-        Resume Work
-      </button>
-    )}
-</div>
-          </Modal>
-        )}
+          <TaskCommunicationPanel
+            taskId={selectedTask.id}
+            canComment={canComment}
+            canManageComments={canManageComments}
+            canUpload={canUploadFiles}
+            canDownload={canDownloadFiles}
+            canManageFiles={canManageFiles}
+            onChanged={() => {
+              void refreshSelectedTask();
+            }}
+          />
+        </Modal>
+      )}
 
       {pendingWorkflowAction && selectedTask && (
         <WorkflowNoteDialog
@@ -1704,7 +1576,7 @@ const runWorkflowAction = async () => {
           onCancel={() => {
             if (saving) return;
             setPendingWorkflowAction(null);
-            setWorkflowNote('');
+            setWorkflowNote("");
           }}
           onConfirm={() => {
             void runWorkflowAction();
@@ -1727,17 +1599,11 @@ function TasksTable({
   canUpdate: boolean;
   canDelete: boolean;
 
-  onView: (
-    task: Task,
-  ) => void;
+  onView: (task: Task) => void;
 
-  onEdit: (
-    task: Task,
-  ) => void;
+  onEdit: (task: Task) => void;
 
-  onDelete: (
-    task: Task,
-  ) => void;
+  onDelete: (task: Task) => void;
 }) {
   if (!tasks.length) {
     return (
@@ -1752,52 +1618,32 @@ function TasksTable({
       <table className="w-full text-left text-sm">
         <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
           <tr>
-            <th className="px-5 py-4">
-              Task
-            </th>
+            <th className="px-5 py-4">Task</th>
 
-            <th className="px-5 py-4">
-              Project
-            </th>
+            <th className="px-5 py-4">Project</th>
 
-            <th className="px-5 py-4">
-              Assignee
-            </th>
+            <th className="px-5 py-4">Assignee</th>
 
-            <th className="px-5 py-4">
-              Due
-            </th>
+            <th className="px-5 py-4">Due</th>
 
-            <th className="px-5 py-4">
-              Status
-            </th>
+            <th className="px-5 py-4">Status</th>
 
-            <th className="px-5 py-4">
-              Actions
-            </th>
+            <th className="px-5 py-4">Actions</th>
           </tr>
         </thead>
 
         <tbody>
           {tasks.map((task) => {
             const primary =
-              task.assignees.find(
-                (item) =>
-                  item.isPrimary,
-              ) ??
+              task.assignees.find((item) => item.isPrimary) ??
               task.assignees[0];
 
             return (
-              <tr
-                key={task.id}
-                className="border-t border-slate-100"
-              >
+              <tr key={task.id} className="border-t border-slate-100">
                 <td className="px-5 py-4">
                   <button
                     type="button"
-                    onClick={() =>
-                      void onView(task)
-                    }
+                    onClick={() => void onView(task)}
                     className="text-left"
                   >
                     <div className="flex items-center gap-2">
@@ -1811,58 +1657,38 @@ function TasksTable({
                     </div>
 
                     <p className="mt-1 text-xs text-slate-400">
-                      {
-                        task.client
-                          .name
-                      }
+                      {task.client.name}
 
-                      {task.isDraft
-                        ? ' · Draft'
-                        : ''}
+                      {task.isDraft ? " · Draft" : ""}
                     </p>
                   </button>
                 </td>
 
-                <td className="px-5 py-4">
-                  {task.project.name}
-                </td>
+                <td className="px-5 py-4">{task.project.name}</td>
 
                 <td className="px-5 py-4">
-                  {primary?.employee
-                    .fullName ?? '—'}
+                  {primary?.employee.fullName ?? "—"}
                 </td>
 
                 <td className="px-5 py-4">
                   <span
                     className={
-                      isOverdue(task)
-                        ? 'font-semibold text-red-600'
-                        : ''
+                      isOverdue(task) ? "font-semibold text-red-600" : ""
                     }
                   >
-                    {formatDateTime(
-                      task.dueAt,
-                    )}
+                    {formatDateTime(task.dueAt)}
                   </span>
                 </td>
 
                 <td className="px-5 py-4">
-                  <StatusBadge
-                    status={
-                      task.status
-                    }
-                  />
+                  <StatusBadge status={task.status} />
                 </td>
 
                 <td className="px-5 py-4">
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      onClick={() =>
-                        void onView(
-                          task,
-                        )
-                      }
+                      onClick={() => void onView(task)}
                       className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold"
                     >
                       View
@@ -1871,9 +1697,7 @@ function TasksTable({
                     {canUpdate && (
                       <button
                         type="button"
-                        onClick={() =>
-                          onEdit(task)
-                        }
+                        onClick={() => onEdit(task)}
                         className="rounded-lg border border-slate-200 p-2"
                       >
                         <Edit3 className="h-4 w-4" />
@@ -1883,11 +1707,7 @@ function TasksTable({
                     {canDelete && (
                       <button
                         type="button"
-                        onClick={() =>
-                          void onDelete(
-                            task,
-                          )
-                        }
+                        onClick={() => void onDelete(task)}
                         className="rounded-lg border border-red-200 p-2 text-red-600"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -1918,8 +1738,8 @@ function TaskForm({
   saving,
   onSubmit,
   criticalDefault = false,
-  initialProjectId = '',
-  initialDepartmentId = '',
+  initialProjectId = "",
+  initialDepartmentId = "",
 }: {
   task?: Task;
   meta: TaskMeta;
@@ -1932,22 +1752,21 @@ function TaskForm({
   canUploadFiles: boolean;
   canAssignPeople: boolean;
   saving: boolean;
-  onSubmit: (
-    event: FormEvent<HTMLFormElement>,
-  ) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   criticalDefault?: boolean;
   initialProjectId?: string;
   initialDepartmentId?: string;
 }) {
   const { authFetch } = useAuth();
 
-  const [selectedClientId, setSelectedClientId] =
-    useState(task?.clientId ?? '');
-  const [selectedProjectId, setSelectedProjectId] =
-    useState(task?.projectId ?? initialProjectId);
+  const [selectedClientId, setSelectedClientId] = useState(
+    task?.clientId ?? "",
+  );
+  const [selectedProjectId, setSelectedProjectId] = useState(
+    task?.projectId ?? initialProjectId,
+  );
 
-  const [reviewerOptions, setReviewerOptions] =
-    useState<Employee[]>([]);
+  const [reviewerOptions, setReviewerOptions] = useState<Employee[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -1964,12 +1783,10 @@ function TaskForm({
         const params = new URLSearchParams();
 
         if (selectedProjectId) {
-          params.set('projectId', selectedProjectId);
+          params.set("projectId", selectedProjectId);
         }
 
-        const suffix = params.toString()
-          ? `?${params.toString()}`
-          : '';
+        const suffix = params.toString() ? `?${params.toString()}` : "";
 
         const response = await authFetch(
           `/tasks/meta/reviewer-options${suffix}`,
@@ -1985,9 +1802,7 @@ function TaskForm({
         const result = await response.json();
 
         if (active) {
-          setReviewerOptions(
-            unwrapList<Employee>(result),
-          );
+          setReviewerOptions(unwrapList<Employee>(result));
         }
       } catch {
         if (active) {
@@ -2001,15 +1816,10 @@ function TaskForm({
     return () => {
       active = false;
     };
-  }, [
-    authFetch,
-    canAssignPeople,
-    selectedProjectId,
-  ]);
-
+  }, [authFetch, canAssignPeople, selectedProjectId]);
 
   const getProjectClientId = (project: Project) =>
-    project.clientId ?? project.client?.id ?? '';
+    project.clientId ?? project.client?.id ?? "";
 
   useEffect(() => {
     if (task || !initialProjectId) return;
@@ -2037,16 +1847,14 @@ function TaskForm({
     );
 
     if (!selectedProject) {
-      setSelectedProjectId('');
-
+      setSelectedProjectId("");
 
       return;
     }
 
     const projectClientId = getProjectClientId(selectedProject);
     if (value && projectClientId && projectClientId !== value) {
-      setSelectedProjectId('');
-
+      setSelectedProjectId("");
     }
   };
 
@@ -2054,14 +1862,11 @@ function TaskForm({
     setSelectedProjectId(value);
     if (!value) return;
 
-    const selectedProject = projects.find(
-      (project) => project.id === value,
-    );
+    const selectedProject = projects.find((project) => project.id === value);
     if (!selectedProject) return;
 
     const projectClientId = getProjectClientId(selectedProject);
     if (projectClientId) setSelectedClientId(projectClientId);
-
   };
 
   const getProjectLabel = (project: Project) => {
@@ -2070,9 +1875,7 @@ function TaskForm({
       project.client?.name ??
       clients.find((client) => client.id === projectClientId)?.name;
 
-    return clientName
-      ? `${project.name} — ${clientName}`
-      : project.name;
+    return clientName ? `${project.name} — ${clientName}` : project.name;
   };
 
   const selectedProjectForForm =
@@ -2096,27 +1899,22 @@ function TaskForm({
 
   const effectiveClientId =
     selectedClientId ||
-    (selectedProjectForForm
-      ? getProjectClientId(selectedProjectForForm)
-      : '');
+    (selectedProjectForForm ? getProjectClientId(selectedProjectForForm) : "");
 
   const selectedClientForForm =
     clients.find((client) => client.id === effectiveClientId) ??
     selectedProjectForForm?.client ??
     null;
 
-  const contextDepartment =
-    initialDepartmentId
-      ? taskDepartmentOptions.find(
-          (department) => department.id === initialDepartmentId,
-        ) ?? null
-      : null;
+  const contextDepartment = initialDepartmentId
+    ? (taskDepartmentOptions.find(
+        (department) => department.id === initialDepartmentId,
+      ) ?? null)
+    : null;
 
   const autoDepartment =
     contextDepartment ??
-    (taskDepartmentOptions.length === 1
-      ? taskDepartmentOptions[0]
-      : null);
+    (taskDepartmentOptions.length === 1 ? taskDepartmentOptions[0] : null);
 
   const linkedProjectContext = Boolean(
     !task && initialProjectId && selectedProjectForForm,
@@ -2125,13 +1923,12 @@ function TaskForm({
   const primaryAssignee =
     task?.assignees.find((item) => item.isPrimary)?.employeeId ??
     task?.assignees[0]?.employeeId ??
-    '';
+    "";
 
   if (!task) {
     const visibleProjects = effectiveClientId
       ? projects.filter(
-          (project) =>
-            getProjectClientId(project) === effectiveClientId,
+          (project) => getProjectClientId(project) === effectiveClientId,
         )
       : projects;
 
@@ -2143,10 +1940,10 @@ function TaskForm({
         {linkedProjectContext && (
           <div className="md:col-span-2 lg:col-span-6 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
             <span className="rounded-lg bg-white px-2.5 py-1 text-xs font-semibold text-slate-700">
-              {selectedClientForForm?.name ?? 'Client'}
+              {selectedClientForForm?.name ?? "Client"}
             </span>
             <span className="rounded-lg bg-white px-2.5 py-1 text-xs font-semibold text-slate-700">
-              {selectedProjectForForm?.name ?? 'Project'}
+              {selectedProjectForForm?.name ?? "Project"}
             </span>
             {autoDepartment && (
               <span className="rounded-lg bg-white px-2.5 py-1 text-xs font-semibold text-slate-700">
@@ -2156,39 +1953,69 @@ function TaskForm({
           </div>
         )}
 
-        <div className={linkedProjectContext ? 'hidden' : 'lg:col-span-3'}>
+        <div className={linkedProjectContext ? "hidden" : "lg:col-span-3"}>
           <Select
-          name="clientId"
-          label="Client"
-          required
-          value={effectiveClientId}
-          onChange={handleClientChange}
-        >
-          <option value="">Select Client</option>
-          {clients.map((client) => (
-            <option key={client.id} value={client.id}>
-              {client.name}
-            </option>
-          ))}
+            name="clientId"
+            label="Client"
+            required
+            value={effectiveClientId}
+            onChange={handleClientChange}
+          >
+            <option value="">Select Client</option>
+            {clients.map((client) => (
+              <option key={client.id} value={client.id}>
+                {client.name}
+              </option>
+            ))}
           </Select>
         </div>
 
-        <div className={linkedProjectContext ? 'hidden' : 'lg:col-span-3'}>
+        <div className={linkedProjectContext ? "hidden" : "lg:col-span-3"}>
           <Select
-          name="projectId"
-          label="Project"
-          required
-          value={selectedProjectId}
-          onChange={handleProjectChange}
-        >
-          <option value="">Select Project</option>
-          {visibleProjects.map((project) => (
-            <option key={project.id} value={project.id}>
-              {project.name}
-            </option>
-          ))}
+            name="projectId"
+            label="Project"
+            required
+            value={selectedProjectId}
+            onChange={handleProjectChange}
+          >
+            <option value="">Select Project</option>
+            {visibleProjects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
+            ))}
           </Select>
         </div>
+
+        {selectedClientForForm && (
+          <div className="md:col-span-2 lg:col-span-6 rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2">
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
+              <span>
+                <strong className="text-slate-800">Client:</strong>{" "}
+                {selectedClientForForm.companyName ??
+                  selectedClientForForm.name}
+              </span>
+              {selectedClientForForm.phone && (
+                <span>
+                  <strong className="text-slate-800">Phone:</strong>{" "}
+                  {selectedClientForForm.phone}
+                </span>
+              )}
+              {selectedClientForForm.email && (
+                <span>
+                  <strong className="text-slate-800">Email:</strong>{" "}
+                  {selectedClientForForm.email}
+                </span>
+              )}
+            </div>
+            {selectedClientForForm.requirements && (
+              <p className="mt-1 line-clamp-2 text-xs text-slate-500">
+                <strong className="text-slate-700">Scope:</strong>{" "}
+                {selectedClientForForm.requirements}
+              </p>
+            )}
+          </div>
+        )}
 
         {autoDepartment ? (
           <input type="hidden" name="departmentId" value={autoDepartment.id} />
@@ -2213,42 +2040,27 @@ function TaskForm({
         <input type="hidden" name="priority" value="HIGH" />
 
         <div className="lg:col-span-3">
-          <Input
-            name="title"
-            label="Task Name"
-            required
-          />
+          <Input name="title" label="Task Name" required />
         </div>
 
         <div className="lg:col-span-3">
-          <Select
-            name="primaryAssigneeId"
-            label="Assign To"
-            defaultValue=""
-          >
+          <Select name="primaryAssigneeId" label="Assign To" defaultValue="">
             <option value="">Select Assignee</option>
             {employees.map((employee) => (
               <option key={employee.id} value={employee.id}>
                 {employee.fullName}
-                {employee.designation ? ` — ${employee.designation}` : ''}
+                {employee.designation ? ` — ${employee.designation}` : ""}
               </option>
             ))}
           </Select>
         </div>
 
         <div className="lg:col-span-2">
-          <Input
-            name="dueAt"
-            label="Deadline"
-            type="date"
-          />
+          <Input name="dueAt" label="Deadline" type="date" />
         </div>
 
         <div className="md:col-span-2 lg:col-span-4">
-          <AutoGrowTextarea
-            name="description"
-            label="Brief"
-          />
+          <AutoGrowTextarea name="description" label="Brief" />
         </div>
 
         {canAssignPeople && (
@@ -2274,38 +2086,35 @@ function TaskForm({
             More options
           </summary>
           <div className="grid gap-3 border-t border-slate-200 p-3 md:grid-cols-2">
-        <div className="md:col-span-2">
-          <Textarea
-            name="internalNotes"
-            label="References"
-          />
-        </div>
+            <div className="md:col-span-2">
+              <Textarea name="internalNotes" label="References" />
+            </div>
 
-        {canUploadFiles && (
-          <div className="md:col-span-2">
-            <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
-              <Paperclip className="h-4 w-4" /> Add Attachment
-              <input
-                name="attachments"
-                type="file"
-                multiple
-                className="hidden"
-              />
-            </label>
-          </div>
-        )}
+            {canUploadFiles && (
+              <div className="md:col-span-2">
+                <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
+                  <Paperclip className="h-4 w-4" /> Add Attachment
+                  <input
+                    name="attachments"
+                    type="file"
+                    multiple
+                    className="hidden"
+                  />
+                </label>
+              </div>
+            )}
 
-        <div className="md:col-span-2">
-          <SubtaskBuilder employees={employees} />
-        </div>
+            <div className="md:col-span-2">
+              <SubtaskBuilder employees={employees} />
+            </div>
 
-        <div className="md:col-span-2">
-          <ChecklistBuilder />
-        </div>
+            <div className="md:col-span-2">
+              <ChecklistBuilder />
+            </div>
 
-        <div className="md:col-span-2">
-          <DependencySelector tasks={availableTasks} />
-        </div>
+            <div className="md:col-span-2">
+              <DependencySelector tasks={availableTasks} />
+            </div>
           </div>
         </details>
 
@@ -2324,21 +2133,16 @@ function TaskForm({
   }
 
   return (
-    <form
-      onSubmit={onSubmit}
-      className="grid gap-4 sm:grid-cols-2"
-    >
+    <form onSubmit={onSubmit} className="grid gap-4 sm:grid-cols-2">
       <div className="sm:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-        <p className="text-sm font-bold text-slate-900">
-          Core Task Details
-        </p>
+        <p className="text-sm font-bold text-slate-900">Core Task Details</p>
       </div>
 
       <Input
         name="title"
         label="Task Title"
         required
-        defaultValue={task?.title ?? ''}
+        defaultValue={task?.title ?? ""}
       />
 
       <input type="hidden" name="priority" value="HIGH" />
@@ -2381,7 +2185,7 @@ function TaskForm({
       <Select
         name="departmentId"
         label="Department"
-        defaultValue={task?.departmentId ?? ''}
+        defaultValue={task?.departmentId ?? ""}
       >
         <option value="">No Department</option>
         {departments.map((department) => (
@@ -2406,7 +2210,7 @@ function TaskForm({
         <Select
           name="statusId"
           label="Status"
-          defaultValue={meta.statuses[0]?.id ?? ''}
+          defaultValue={meta.statuses[0]?.id ?? ""}
         >
           {meta.statuses.map((status) => (
             <option key={status.id} value={status.id}>
@@ -2433,8 +2237,8 @@ function TaskForm({
           {employees.map((employee) => (
             <option key={employee.id} value={employee.id}>
               {employee.fullName}
-              {employee.username ? ` (@${employee.username})` : ''}
-              {employee.designation ? ` — ${employee.designation}` : ''}
+              {employee.username ? ` (@${employee.username})` : ""}
+              {employee.designation ? ` — ${employee.designation}` : ""}
             </option>
           ))}
         </Select>
@@ -2444,7 +2248,7 @@ function TaskForm({
         <Textarea
           name="description"
           label="Description"
-          defaultValue={task?.description ?? ''}
+          defaultValue={task?.description ?? ""}
         />
       </div>
 
@@ -2464,9 +2268,7 @@ function TaskForm({
               title="Reviewer"
               name="reviewerIds"
               employees={reviewerOptions}
-              checkedIds={
-                task?.reviewers?.map((item) => item.employeeId) ?? []
-              }
+              checkedIds={task?.reviewers?.map((item) => item.employeeId) ?? []}
               emptyText="No eligible reviewers available."
             />
           </div>
@@ -2483,7 +2285,8 @@ function TaskForm({
               </p>
             </div>
             <p className="mt-1 text-xs text-violet-700">
-              Add checklist items and assignable subtasks now. They remain editable from Task View.
+              Add checklist items and assignable subtasks now. They remain
+              editable from Task View.
             </p>
           </div>
 
@@ -2540,7 +2343,8 @@ function TaskForm({
                   className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm"
                 />
                 <p className="mt-1.5 text-xs text-slate-500">
-                  Files are uploaded after the task is created. Maximum 50 MB per file; backend file-type rules still apply.
+                  Files are uploaded after the task is created. Maximum 50 MB
+                  per file; backend file-type rules still apply.
                 </p>
               </label>
             </div>
@@ -2556,7 +2360,7 @@ function TaskForm({
         <Textarea
           name="internalNotes"
           label="Internal Notes"
-          defaultValue={task?.internalNotes ?? ''}
+          defaultValue={task?.internalNotes ?? ""}
         />
       </div>
 
@@ -2581,11 +2385,7 @@ function TaskForm({
 
         {!task && (
           <label className="flex items-center gap-2 text-sm font-semibold text-emerald-700">
-            <input
-              type="checkbox"
-              name="notifyAssignee"
-              defaultChecked
-            />
+            <input type="checkbox" name="notifyAssignee" defaultChecked />
             Notify Assignee
           </label>
         )}
@@ -2598,13 +2398,12 @@ function TaskForm({
           className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-950 px-5 py-3 text-sm font-bold text-white disabled:opacity-50"
         >
           {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-          {task ? 'Save Changes' : 'Create Task'}
+          {task ? "Save Changes" : "Create Task"}
         </button>
       </div>
     </form>
   );
 }
-
 
 function CreateTaskVoiceInput() {
   const { authFetch } = useAuth();
@@ -2613,13 +2412,13 @@ function CreateTaskVoiceInput() {
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [durationSeconds, setDurationSeconds] = useState<number | null>(null);
-  const [voiceError, setVoiceError] = useState('');
+  const [voiceError, setVoiceError] = useState("");
   const [transcribing, setTranscribing] = useState(false);
-  const [transcript, setTranscript] = useState('');
-  const [transcriptLanguage, setTranscriptLanguage] = useState('gu');
-  const [transcriptionLanguage, setTranscriptionLanguage] = useState('gu');
-  const [transcriptMeta, setTranscriptMeta] = useState('');
-  const [previewUrl, setPreviewUrl] = useState('');
+  const [transcript, setTranscript] = useState("");
+  const [transcriptLanguage, setTranscriptLanguage] = useState("gu");
+  const [transcriptionLanguage, setTranscriptionLanguage] = useState("gu");
+  const [transcriptMeta, setTranscriptMeta] = useState("");
+  const [previewUrl, setPreviewUrl] = useState("");
 
   const inputRef = useRef<HTMLInputElement | null>(null);
   const transcriptRef = useRef<HTMLTextAreaElement | null>(null);
@@ -2646,7 +2445,7 @@ function CreateTaskVoiceInput() {
     if (!input) return;
 
     if (!file) {
-      input.value = '';
+      input.value = "";
       return;
     }
 
@@ -2660,41 +2459,32 @@ function CreateTaskVoiceInput() {
   }, []);
 
   const setVoiceFile = useCallback(
-    (
-      file: File | null,
-      duration: number | null = null,
-    ) => {
+    (file: File | null, duration: number | null = null) => {
       setSelectedFile(file);
       setDurationSeconds(duration);
       applyFileToInput(file);
-      setVoiceError('');
+      setVoiceError("");
     },
     [applyFileToInput],
   );
 
   const transcribeFile = useCallback(
-    async (
-      file: File,
-      mode: 'replace' | 'append' = 'replace',
-    ) => {
+    async (file: File, mode: "replace" | "append" = "replace") => {
       setTranscribing(true);
-      setVoiceError('');
-      setTranscriptMeta('');
+      setVoiceError("");
+      setTranscriptMeta("");
 
       try {
         const previewForm = new FormData();
-        previewForm.append('file', file);
-        if (transcriptionLanguage !== 'auto') {
-          previewForm.append('language', transcriptionLanguage);
+        previewForm.append("file", file);
+        if (transcriptionLanguage !== "auto") {
+          previewForm.append("language", transcriptionLanguage);
         }
 
-        const response = await authFetch(
-          '/voice-notes/preview-transcribe',
-          {
-            method: 'POST',
-            body: previewForm,
-          },
-        );
+        const response = await authFetch("/voice-notes/preview-transcribe", {
+          method: "POST",
+          body: previewForm,
+        });
 
         let result: unknown = null;
 
@@ -2704,10 +2494,7 @@ function CreateTaskVoiceInput() {
 
         if (!response.ok) {
           throw new Error(
-            getErrorMessage(
-              result,
-              'Unable to transcribe this audio.',
-            ),
+            getErrorMessage(result, "Unable to transcribe this audio."),
           );
         }
 
@@ -2718,13 +2505,11 @@ function CreateTaskVoiceInput() {
           model?: string | null;
         };
 
-        const nextText = payload.text?.trim() ?? '';
+        const nextText = payload.text?.trim() ?? "";
 
-        if (mode === 'append' && nextText) {
+        if (mode === "append" && nextText) {
           setTranscript((current) =>
-            current.trim()
-              ? `${current.trimEnd()}\n${nextText}`
-              : nextText,
+            current.trim() ? `${current.trimEnd()}\n${nextText}` : nextText,
           );
         } else {
           setTranscript(nextText);
@@ -2732,9 +2517,7 @@ function CreateTaskVoiceInput() {
 
         setTranscriptLanguage(
           payload.language?.trim() ||
-            (transcriptionLanguage !== 'auto'
-              ? transcriptionLanguage
-              : ''),
+            (transcriptionLanguage !== "auto" ? transcriptionLanguage : ""),
         );
 
         const meta: string[] = [];
@@ -2744,7 +2527,7 @@ function CreateTaskVoiceInput() {
         }
 
         if (
-          typeof payload.durationSeconds === 'number' &&
+          typeof payload.durationSeconds === "number" &&
           Number.isFinite(payload.durationSeconds)
         ) {
           meta.push(
@@ -2758,12 +2541,12 @@ function CreateTaskVoiceInput() {
           meta.push(`Model: ${payload.model}`);
         }
 
-        setTranscriptMeta(meta.join(' · '));
+        setTranscriptMeta(meta.join(" · "));
       } catch (error) {
         setVoiceError(
           error instanceof Error
             ? error.message
-            : 'Unable to transcribe this audio.',
+            : "Unable to transcribe this audio.",
         );
       } finally {
         setTranscribing(false);
@@ -2774,14 +2557,14 @@ function CreateTaskVoiceInput() {
 
   const finishRecording = useCallback(() => {
     const recorder = recorderRef.current;
-    if (recorder && recorder.state !== 'inactive') {
+    if (recorder && recorder.state !== "inactive") {
       recorder.stop();
     }
   }, []);
 
   useEffect(() => {
     if (!selectedFile) {
-      setPreviewUrl('');
+      setPreviewUrl("");
       return;
     }
 
@@ -2796,7 +2579,7 @@ function CreateTaskVoiceInput() {
   useEffect(() => {
     const area = transcriptRef.current;
     if (!area) return;
-    area.style.height = 'auto';
+    area.style.height = "auto";
     area.style.height = `${Math.min(area.scrollHeight, 112)}px`;
   }, [transcript]);
 
@@ -2804,7 +2587,7 @@ function CreateTaskVoiceInput() {
     return () => {
       clearTimer();
       const recorder = recorderRef.current;
-      if (recorder && recorder.state !== 'inactive') {
+      if (recorder && recorder.state !== "inactive") {
         try {
           recorder.stop();
         } catch {}
@@ -2814,14 +2597,14 @@ function CreateTaskVoiceInput() {
   }, [clearTimer, stopStream]);
 
   const startRecording = async () => {
-    setVoiceError('');
+    setVoiceError("");
 
     if (
-      typeof MediaRecorder === 'undefined' ||
+      typeof MediaRecorder === "undefined" ||
       !navigator.mediaDevices?.getUserMedia
     ) {
       setVoiceError(
-        'Microphone recording is not supported in this browser. Please upload an audio file instead.',
+        "Microphone recording is not supported in this browser. Please upload an audio file instead.",
       );
       return;
     }
@@ -2832,13 +2615,13 @@ function CreateTaskVoiceInput() {
       chunksRef.current = [];
 
       const candidates = [
-        'audio/webm;codecs=opus',
-        'audio/webm',
-        'audio/ogg;codecs=opus',
-        'audio/mp4',
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/ogg;codecs=opus",
+        "audio/mp4",
       ];
       const mimeType =
-        candidates.find((type) => MediaRecorder.isTypeSupported(type)) ?? '';
+        candidates.find((type) => MediaRecorder.isTypeSupported(type)) ?? "";
 
       const recorder = mimeType
         ? new MediaRecorder(stream, { mimeType })
@@ -2857,12 +2640,12 @@ function CreateTaskVoiceInput() {
           ? Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000))
           : Math.max(1, recordingSeconds);
 
-        const finalMime = recorder.mimeType || mimeType || 'audio/webm';
-        const extension = finalMime.includes('ogg')
-          ? 'ogg'
-          : finalMime.includes('mp4')
-            ? 'm4a'
-            : 'webm';
+        const finalMime = recorder.mimeType || mimeType || "audio/webm";
+        const extension = finalMime.includes("ogg")
+          ? "ogg"
+          : finalMime.includes("mp4")
+            ? "m4a"
+            : "webm";
 
         const file = new File(
           [new Blob(chunksRef.current, { type: finalMime })],
@@ -2875,11 +2658,11 @@ function CreateTaskVoiceInput() {
         startedAtRef.current = null;
         stopStream();
 
-        void transcribeFile(file, 'append');
+        void transcribeFile(file, "append");
       };
 
       recorder.onerror = () => {
-        setVoiceError('Recording failed. Please try again.');
+        setVoiceError("Recording failed. Please try again.");
         clearTimer();
         setRecording(false);
         stopStream();
@@ -2903,7 +2686,7 @@ function CreateTaskVoiceInput() {
       setVoiceError(
         error instanceof Error
           ? error.message
-          : 'Microphone permission was not granted.',
+          : "Microphone permission was not granted.",
       );
       setRecording(false);
       clearTimer();
@@ -2916,8 +2699,8 @@ function CreateTaskVoiceInput() {
     setDurationSeconds(null);
     setRecordingSeconds(0);
     applyFileToInput(null);
-    setVoiceError('');
-    setTranscriptMeta('');
+    setVoiceError("");
+    setTranscriptMeta("");
   };
 
   return (
@@ -2934,9 +2717,7 @@ function CreateTaskVoiceInput() {
           onClick={recording ? finishRecording : () => void startRecording()}
           disabled={transcribing}
           className={`inline-flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs font-bold transition disabled:opacity-50 ${
-            recording
-              ? 'bg-red-600 text-white'
-              : 'bg-slate-900 text-white'
+            recording ? "bg-red-600 text-white" : "bg-slate-900 text-white"
           }`}
         >
           {recording ? (
@@ -2946,7 +2727,7 @@ function CreateTaskVoiceInput() {
           )}
           {recording
             ? `Stop ${formatDuration(recordingSeconds)}`
-            : 'Record Voice'}
+            : "Record Voice"}
         </button>
 
         <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-bold text-slate-700">
@@ -2960,9 +2741,9 @@ function CreateTaskVoiceInput() {
               const file = event.target.files?.[0] ?? null;
               if (!file) return;
               setVoiceFile(file, null);
-              setTranscript('');
-              setTranscriptLanguage('');
-              void transcribeFile(file, 'replace');
+              setTranscript("");
+              setTranscriptLanguage("");
+              void transcribeFile(file, "replace");
             }}
             className="hidden"
           />
@@ -2990,7 +2771,7 @@ function CreateTaskVoiceInput() {
       <input
         type="hidden"
         name="voiceDurationSeconds"
-        value={durationSeconds ?? ''}
+        value={durationSeconds ?? ""}
         readOnly
       />
 
@@ -3016,10 +2797,10 @@ function CreateTaskVoiceInput() {
               rows={1}
               placeholder={
                 recording
-                  ? 'Listening…'
+                  ? "Listening…"
                   : transcribing
-                    ? 'Transcribing…'
-                    : 'Transcript'
+                    ? "Transcribing…"
+                    : "Transcript"
               }
               className="max-h-28 min-h-9 w-full resize-none overflow-y-auto rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm outline-none focus:border-indigo-300"
             />
@@ -3028,11 +2809,10 @@ function CreateTaskVoiceInput() {
       )}
     </div>
   );
-
 }
 
 function ChecklistBuilder() {
-  const [rows, setRows] = useState(['']);
+  const [rows, setRows] = useState([""]);
 
   return (
     <div>
@@ -3040,7 +2820,7 @@ function ChecklistBuilder() {
         <p className="text-sm font-semibold text-slate-700">Checklist</p>
         <button
           type="button"
-          onClick={() => setRows((items) => [...items, ''])}
+          onClick={() => setRows((items) => [...items, ""])}
           className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-bold"
         >
           <Plus className="h-3.5 w-3.5" /> Add Item
@@ -3082,9 +2862,7 @@ function ChecklistBuilder() {
 }
 
 function SubtaskBuilder({ employees }: { employees: Employee[] }) {
-  const [rows, setRows] = useState([
-    { title: '', assignedEmployeeId: '' },
-  ]);
+  const [rows, setRows] = useState([{ title: "", assignedEmployeeId: "" }]);
 
   return (
     <div>
@@ -3095,7 +2873,7 @@ function SubtaskBuilder({ employees }: { employees: Employee[] }) {
           onClick={() =>
             setRows((items) => [
               ...items,
-              { title: '', assignedEmployeeId: '' },
+              { title: "", assignedEmployeeId: "" },
             ])
           }
           className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-bold"
@@ -3195,7 +2973,9 @@ function DependencySelector({ tasks }: { tasks: DependencyOption[] }) {
           </label>
         ))}
         {!tasks.length && (
-          <p className="p-3 text-sm text-slate-400">No dependency tasks available.</p>
+          <p className="p-3 text-sm text-slate-400">
+            No dependency tasks available.
+          </p>
         )}
       </div>
       <p className="mt-1.5 text-xs text-slate-500">
@@ -3207,7 +2987,7 @@ function DependencySelector({ tasks }: { tasks: DependencyOption[] }) {
 
 function RecurringTaskBuilder() {
   const [enabled, setEnabled] = useState(false);
-  const [frequency, setFrequency] = useState('WEEKLY');
+  const [frequency, setFrequency] = useState("WEEKLY");
 
   return (
     <div className="rounded-2xl border border-slate-200 p-4">
@@ -3224,7 +3004,9 @@ function RecurringTaskBuilder() {
       {enabled && (
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
           <label>
-            <span className="mb-1.5 block text-xs font-bold text-slate-600">Frequency</span>
+            <span className="mb-1.5 block text-xs font-bold text-slate-600">
+              Frequency
+            </span>
             <select
               name="recurrenceFrequency"
               value={frequency}
@@ -3257,18 +3039,18 @@ function RecurringTaskBuilder() {
             type="datetime-local"
           />
 
-          {frequency === 'WEEKLY' && (
+          {frequency === "WEEKLY" && (
             <div className="sm:col-span-2">
               <p className="mb-2 text-xs font-bold text-slate-600">Weekdays</p>
               <div className="flex flex-wrap gap-2">
                 {[
-                  ['Sun', 0],
-                  ['Mon', 1],
-                  ['Tue', 2],
-                  ['Wed', 3],
-                  ['Thu', 4],
-                  ['Fri', 5],
-                  ['Sat', 6],
+                  ["Sun", 0],
+                  ["Mon", 1],
+                  ["Tue", 2],
+                  ["Wed", 3],
+                  ["Thu", 4],
+                  ["Fri", 5],
+                  ["Sat", 6],
                 ].map(([label, value]) => (
                   <label
                     key={String(value)}
@@ -3286,7 +3068,7 @@ function RecurringTaskBuilder() {
             </div>
           )}
 
-          {frequency === 'MONTHLY' && (
+          {frequency === "MONTHLY" && (
             <Input
               name="recurrenceDayOfMonth"
               label="Day of Month"
@@ -3300,215 +3082,123 @@ function RecurringTaskBuilder() {
   );
 }
 
-function TaskDetails({
-  task,
-}: {
-  task: Task;
-}) {
-  const primary =
-    task.assignees.find(
-      (person) =>
-        person.isPrimary,
-    ) ?? task.assignees[0];
-
+function TaskDetails({ task }: { task: Task }) {
   return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap gap-2">
-        <StatusBadge
-          status={task.status}
-        />
-
-        {task.isDraft && (
-          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold">
-            DRAFT
-          </span>
-        )}
-
-        {task.isCritical && (
-          <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-3 py-1 text-xs font-semibold text-red-700">
-            <AlertTriangle className="h-3.5 w-3.5" />
-            CRITICAL
-          </span>
-        )}
-      </div>
-
-      {!!task.tags?.length && (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1 text-xs font-bold uppercase tracking-wide text-slate-400">
-            <Tags className="h-3.5 w-3.5" />
-            Tags
-          </span>
-
-          {task.tags.map((item) => (
-            <span
-              key={item.id}
-              className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-700"
-            >
-              {item.tag.name}
-            </span>
-          ))}
+    <div className="space-y-4">
+      <div className="grid gap-3 md:grid-cols-[220px_minmax(0,1fr)]">
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
+            Project
+          </p>
+          <p className="mt-1 text-sm font-bold text-slate-900">
+            {task.project.name}
+          </p>
         </div>
-      )}
 
-      <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
-        <p className="text-xs font-bold uppercase tracking-wide text-slate-400">
-          Task / Work Brief
-        </p>
-
-        <h3 className="mt-1 text-base font-bold text-slate-950">
-          {task.title}
-        </h3>
-
-        <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-600">
-          {task.description?.trim() ||
-            'No additional brief has been added for this task.'}
-        </p>
+        <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
+            Task Brief
+          </p>
+          <h3 className="mt-1 text-base font-bold text-slate-950">
+            {task.title}
+          </h3>
+          <p className="mt-1.5 whitespace-pre-wrap text-sm leading-5 text-slate-600">
+            {task.description?.trim() ||
+              "No additional brief has been added for this task."}
+          </p>
+        </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <DetailCard
-          label="Client"
-          value={
-            task.client.name
-          }
-        />
-
-        <DetailCard
-          label="Project"
-          value={
-            task.project.name
-          }
-        />
-
-        <DetailCard
-          label="Assigned To"
-          value={
-            primary?.employee
-              .fullName ?? '—'
-          }
-        />
-
-
-
-        <DetailCard
-          label="Department"
-          value={task.department?.name ?? '—'}
-        />
-
-        <DetailCard
-          label="Start Date"
-          value={formatDateTime(
-            task.startDate,
-          )}
-        />
-
-        <DetailCard
-          label="Due"
-          value={formatDateOnly(task.dueAt)}
-        />
-
-
-
-      </div>
-
-      {!!task.collaborators
-        ?.length && (
-        <PeopleSummary
-          title="Collaborators"
-          people={
-            task.collaborators
-          }
-        />
-      )}
-
-      {!!task.reviewers?.length && (
-        <ReviewerApprovalSummary task={task} />
-      )}
-
-      {task.internalNotes && (
-        <div className="rounded-xl bg-amber-50 p-4">
-          <p className="text-xs font-bold uppercase tracking-wide text-amber-800">
+      <div className="grid gap-3 md:grid-cols-2">
+        <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-amber-800">
             References
           </p>
-
-          <p className="mt-2 text-sm text-amber-900">
-            {task.internalNotes}
+          <p className="mt-1.5 whitespace-pre-wrap text-sm leading-5 text-amber-950">
+            {task.internalNotes?.trim() || "No references added."}
           </p>
         </div>
-      )}
+
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
+            Reviewers
+          </p>
+          {task.reviewers?.length ? (
+            <div className="mt-2">
+              <ReviewerApprovalSummary task={task} compact />
+            </div>
+          ) : (
+            <p className="mt-1.5 text-sm text-slate-400">
+              No reviewers assigned.
+            </p>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
 
 function ReviewerApprovalSummary({
   task,
+  compact = false,
 }: {
   task: Task;
+  compact?: boolean;
 }) {
-  const latestByReviewer =
-    new Map<string, TaskApproval>();
+  const latestByReviewer = new Map<string, TaskApproval>();
 
   for (const approval of task.approvals ?? []) {
-    if (
-      approval.reviewerId &&
-      !latestByReviewer.has(
-        approval.reviewerId,
-      )
-    ) {
-      latestByReviewer.set(
-        approval.reviewerId,
-        approval,
-      );
+    if (approval.reviewerId && !latestByReviewer.has(approval.reviewerId)) {
+      latestByReviewer.set(approval.reviewerId, approval);
     }
   }
 
-  const getLabel = (
-    status?: TaskApproval['status'],
-  ) => {
+  const getLabel = (status?: TaskApproval["status"]) => {
     switch (status) {
-      case 'APPROVED':
-        return 'Approved';
-      case 'CHANGES_REQUESTED':
-        return 'Changes Requested';
-      case 'REJECTED':
-        return 'Rejected';
-      case 'CANCELLED':
-        return 'Closed';
-      case 'PENDING':
-        return 'Pending';
+      case "APPROVED":
+        return "Approved";
+      case "CHANGES_REQUESTED":
+        return "Changes Requested";
+      case "REJECTED":
+        return "Rejected";
+      case "CANCELLED":
+        return "Closed";
+      case "PENDING":
+        return "Pending";
       default:
-        return 'Not Submitted';
+        return "Not Submitted";
     }
   };
 
-  const getClassName = (
-    status?: TaskApproval['status'],
-  ) => {
+  const getClassName = (status?: TaskApproval["status"]) => {
     switch (status) {
-      case 'APPROVED':
-        return 'border-emerald-200 bg-emerald-50 text-emerald-700';
-      case 'CHANGES_REQUESTED':
-      case 'REJECTED':
-        return 'border-rose-200 bg-rose-50 text-rose-700';
-      case 'PENDING':
-        return 'border-amber-200 bg-amber-50 text-amber-700';
+      case "APPROVED":
+        return "border-emerald-200 bg-emerald-50 text-emerald-700";
+      case "CHANGES_REQUESTED":
+      case "REJECTED":
+        return "border-rose-200 bg-rose-50 text-rose-700";
+      case "PENDING":
+        return "border-amber-200 bg-amber-50 text-amber-700";
       default:
-        return 'border-slate-200 bg-slate-50 text-slate-600';
+        return "border-slate-200 bg-slate-50 text-slate-600";
     }
   };
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4">
-      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
-        Reviewers
-      </p>
+    <div
+      className={
+        compact ? "" : "rounded-2xl border border-slate-200 bg-white p-4"
+      }
+    >
+      {!compact && (
+        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">
+          Reviewers
+        </p>
+      )}
 
       <div className="mt-3 space-y-2">
         {task.reviewers?.map((person) => {
-          const approval =
-            latestByReviewer.get(
-              person.employeeId,
-            );
+          const approval = latestByReviewer.get(person.employeeId);
 
           return (
             <div
@@ -3532,9 +3222,7 @@ function ReviewerApprovalSummary({
                   approval?.status,
                 )}`}
               >
-                {getLabel(
-                  approval?.status,
-                )}
+                {getLabel(approval?.status)}
               </span>
             </div>
           );
@@ -3562,15 +3250,15 @@ function TaskExtrasPanel({
     dependencyTasks: [],
   });
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
   const [subtaskWorkflow, setSubtaskWorkflow] = useState<
     Record<string, SubtaskWorkflowItem>
   >({});
-  const [newSubtask, setNewSubtask] = useState('');
-  const [newSubtaskAssignee, setNewSubtaskAssignee] = useState('');
-  const [newChecklist, setNewChecklist] = useState('');
+  const [newSubtask, setNewSubtask] = useState("");
+  const [newSubtaskAssignee, setNewSubtaskAssignee] = useState("");
+  const [newChecklist, setNewChecklist] = useState("");
   const [tagText, setTagText] = useState(
-    (task.tags ?? []).map((item) => item.tag.name).join(', '),
+    (task.tags ?? []).map((item) => item.tag.name).join(", "),
   );
   const [dependencyIds, setDependencyIds] = useState<string[]>(
     (task.dependencies ?? []).map((item) => item.dependsOnTaskId),
@@ -3580,9 +3268,11 @@ function TaskExtrasPanel({
     async <T,>(path: string, init?: RequestInit): Promise<T> => {
       const response = await authFetch(path, init);
       let data: unknown = null;
-      try { data = await response.json(); } catch {}
+      try {
+        data = await response.json();
+      } catch {}
       if (!response.ok) {
-        throw new Error(getErrorMessage(data, 'Request failed.'));
+        throw new Error(getErrorMessage(data, "Request failed."));
       }
       return data as T;
     },
@@ -3595,9 +3285,7 @@ function TaskExtrasPanel({
         `/subtasks/task/${task.id}/workflow`,
       );
       setSubtaskWorkflow(
-        Object.fromEntries(
-          result.items.map((item) => [item.id, item]),
-        ),
+        Object.fromEntries(result.items.map((item) => [item.id, item])),
       );
     } catch {
       setSubtaskWorkflow({});
@@ -3605,9 +3293,7 @@ function TaskExtrasPanel({
   }, [request, task.id]);
 
   useEffect(() => {
-    setTagText(
-      (task.tags ?? []).map((item) => item.tag.name).join(', '),
-    );
+    setTagText((task.tags ?? []).map((item) => item.tag.name).join(", "));
     setDependencyIds(
       (task.dependencies ?? []).map((item) => item.dependsOnTaskId),
     );
@@ -3619,23 +3305,19 @@ function TaskExtrasPanel({
 
   useEffect(() => {
     if (!canManage) return;
-    void request<TaskExtraOptions>(
-      `/task-extras/options?taskId=${task.id}`,
-    )
+    void request<TaskExtraOptions>(`/task-extras/options?taskId=${task.id}`)
       .then(setOptions)
       .catch(() => {});
   }, [canManage, request, task.id]);
 
   async function mutate(path: string, init: RequestInit) {
     setBusy(true);
-    setError('');
+    setError("");
     try {
       await request(path, init);
       await onChanged();
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'Unable to update task.',
-      );
+      setError(err instanceof Error ? err.message : "Unable to update task.");
     } finally {
       setBusy(false);
     }
@@ -3643,25 +3325,20 @@ function TaskExtrasPanel({
 
   async function setSubtaskStatus(
     item: SubtaskRecord,
-    status: Exclude<SubtaskWorkflowStatus, 'PENDING'>,
+    status: Exclude<SubtaskWorkflowStatus, "PENDING">,
   ) {
     setBusy(true);
-    setError('');
+    setError("");
     try {
       await request(`/subtasks/${item.id}/workflow`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status }),
       });
-      await Promise.all([
-        Promise.resolve(onChanged()),
-        loadSubtaskWorkflow(),
-      ]);
+      await Promise.all([Promise.resolve(onChanged()), loadSubtaskWorkflow()]);
     } catch (err) {
       setError(
-        err instanceof Error
-          ? err.message
-          : 'Unable to update subtask status.',
+        err instanceof Error ? err.message : "Unable to update subtask status.",
       );
     } finally {
       setBusy(false);
@@ -3671,39 +3348,39 @@ function TaskExtrasPanel({
   async function addSubtask() {
     if (!newSubtask.trim()) return;
     await mutate(`/subtasks/task/${task.id}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         title: newSubtask.trim(),
         assignedEmployeeId: newSubtaskAssignee || undefined,
       }),
     });
-    setNewSubtask('');
-    setNewSubtaskAssignee('');
+    setNewSubtask("");
+    setNewSubtaskAssignee("");
   }
 
   async function editSubtask(item: SubtaskRecord) {
     const title = await appDialog.prompt({
-      title: 'Edit subtask',
-      message: 'Update the subtask title.',
+      title: "Edit subtask",
+      message: "Update the subtask title.",
       defaultValue: item.title,
-      placeholder: 'Subtask title',
+      placeholder: "Subtask title",
       required: true,
     });
     if (title === null || !title.trim()) return;
 
     const description = await appDialog.prompt({
-      title: 'Subtask description',
-      message: 'Update the description if needed.',
-      defaultValue: item.description ?? '',
-      placeholder: 'Subtask description (optional)',
+      title: "Subtask description",
+      message: "Update the description if needed.",
+      defaultValue: item.description ?? "",
+      placeholder: "Subtask description (optional)",
       multiline: true,
     });
     if (description === null) return;
 
     await mutate(`/subtasks/${item.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         title: title.trim(),
         description,
@@ -3715,48 +3392,48 @@ function TaskExtrasPanel({
   async function addChecklist() {
     if (!newChecklist.trim()) return;
     await mutate(`/checklists/task/${task.id}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title: newChecklist.trim() }),
     });
-    setNewChecklist('');
+    setNewChecklist("");
   }
 
   async function editChecklist(item: ChecklistRecord) {
     const title = await appDialog.prompt({
-      title: 'Edit checklist item',
+      title: "Edit checklist item",
       defaultValue: item.title,
-      placeholder: 'Checklist item',
+      placeholder: "Checklist item",
       required: true,
     });
     if (title === null || !title.trim()) return;
     await mutate(`/checklists/${item.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title: title.trim() }),
     });
   }
 
   async function saveTags() {
     const names = tagText
-      .split(',')
+      .split(",")
       .map((item) => item.trim())
       .filter(Boolean);
 
     await mutate(`/task-extras/task/${task.id}/tags`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ names }),
     });
   }
 
   async function saveDependencies() {
     await mutate(`/task-extras/task/${task.id}/dependencies`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         taskIds: dependencyIds,
-        type: 'FINISH_TO_START',
+        type: "FINISH_TO_START",
       }),
     });
   }
@@ -3769,14 +3446,15 @@ function TaskExtrasPanel({
   ).length;
 
   return (
-    <section className="mt-6 space-y-5 rounded-2xl border border-slate-200 bg-slate-50/60 p-5">
+    <section className="mt-4 space-y-4 rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h3 className="flex items-center gap-2 text-base font-bold text-slate-950">
             <ListChecks className="h-5 w-5" /> Work Breakdown
           </h3>
           <p className="mt-1 text-xs text-slate-500">
-            Subtasks {completedSubtasks}/{task.subtasks?.length ?? 0} · Checklist {completedChecklist}/{task.checklist?.length ?? 0}
+            Subtasks {completedSubtasks}/{task.subtasks?.length ?? 0} ·
+            Checklist {completedChecklist}/{task.checklist?.length ?? 0}
           </p>
         </div>
       </div>
@@ -3811,10 +3489,11 @@ function TaskExtrasPanel({
                   <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-50">
                     {(() => {
                       const workflow = subtaskWorkflow[item.id];
-                      const status = workflow?.status ??
-                        (item.isCompleted ? 'COMPLETED' : 'PENDING');
+                      const status =
+                        workflow?.status ??
+                        (item.isCompleted ? "COMPLETED" : "PENDING");
 
-                      if (status === 'COMPLETED') {
+                      if (status === "COMPLETED") {
                         return (
                           <CheckCircle2
                             className="h-4 w-4 text-emerald-600"
@@ -3823,7 +3502,7 @@ function TaskExtrasPanel({
                         );
                       }
 
-                      if (status === 'STARTED') {
+                      if (status === "STARTED") {
                         return (
                           <Play
                             className="h-4 w-4 text-blue-600"
@@ -3832,7 +3511,7 @@ function TaskExtrasPanel({
                         );
                       }
 
-                      if (status === 'PAUSED') {
+                      if (status === "PAUSED") {
                         return (
                           <Pause
                             className="h-4 w-4 text-amber-600"
@@ -3850,56 +3529,67 @@ function TaskExtrasPanel({
                     })()}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className={`text-sm font-semibold ${item.isCompleted ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
+                    <p
+                      className={`text-sm font-semibold ${item.isCompleted ? "text-slate-400 line-through" : "text-slate-800"}`}
+                    >
                       {item.title}
                     </p>
                     <p className="mt-1 text-xs text-slate-400">
-                      {employee?.fullName ?? 'Unassigned'}
+                      {employee?.fullName ?? "Unassigned"}
                     </p>
                   </div>
                   {(() => {
                     const workflow = subtaskWorkflow[item.id];
-                    const status = workflow?.status ??
-                      (item.isCompleted ? 'COMPLETED' : 'PENDING');
-                    const canControl = Boolean(workflow?.canControl && canUpdate);
+                    const status =
+                      workflow?.status ??
+                      (item.isCompleted ? "COMPLETED" : "PENDING");
+                    const canControl = Boolean(
+                      workflow?.canControl && canUpdate,
+                    );
 
                     if (!canControl) return null;
 
                     return (
                       <div className="flex shrink-0 gap-1">
-                        {status !== 'STARTED' && status !== 'COMPLETED' && (
+                        {status !== "STARTED" && status !== "COMPLETED" && (
                           <button
                             type="button"
                             disabled={busy}
                             title="Start subtask"
                             aria-label="Start subtask"
-                            onClick={() => void setSubtaskStatus(item, 'STARTED')}
+                            onClick={() =>
+                              void setSubtaskStatus(item, "STARTED")
+                            }
                             className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-50"
                           >
                             <Play className="h-3.5 w-3.5" />
                           </button>
                         )}
 
-                        {status === 'STARTED' && (
+                        {status === "STARTED" && (
                           <button
                             type="button"
                             disabled={busy}
                             title="Pause subtask"
                             aria-label="Pause subtask"
-                            onClick={() => void setSubtaskStatus(item, 'PAUSED')}
+                            onClick={() =>
+                              void setSubtaskStatus(item, "PAUSED")
+                            }
                             className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-50"
                           >
                             <Pause className="h-3.5 w-3.5" />
                           </button>
                         )}
 
-                        {status !== 'COMPLETED' && (
+                        {status !== "COMPLETED" && (
                           <button
                             type="button"
                             disabled={busy}
                             title="Complete subtask"
                             aria-label="Complete subtask"
-                            onClick={() => void setSubtaskStatus(item, 'COMPLETED')}
+                            onClick={() =>
+                              void setSubtaskStatus(item, "COMPLETED")
+                            }
                             className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
                           >
                             <CheckCircle2 className="h-3.5 w-3.5" />
@@ -3925,13 +3615,15 @@ function TaskExtrasPanel({
                         disabled={busy}
                         onClick={async () => {
                           const confirmed = await appDialog.confirm({
-                            title: 'Delete subtask',
-                            message: 'Delete this subtask?',
-                            confirmLabel: 'Delete',
-                            tone: 'danger',
+                            title: "Delete subtask",
+                            message: "Delete this subtask?",
+                            confirmLabel: "Delete",
+                            tone: "danger",
                           });
                           if (!confirmed) return;
-                          void mutate(`/subtasks/${item.id}`, { method: 'DELETE' });
+                          void mutate(`/subtasks/${item.id}`, {
+                            method: "DELETE",
+                          });
                         }}
                         aria-label="Delete subtask"
                         className="rounded-lg border border-slate-200 p-2 text-red-600"
@@ -3945,7 +3637,9 @@ function TaskExtrasPanel({
             })}
 
             {!task.subtasks?.length && (
-              <p className="py-5 text-center text-sm text-slate-400">No subtasks yet.</p>
+              <p className="py-5 text-center text-sm text-slate-400">
+                No subtasks yet.
+              </p>
             )}
           </div>
 
@@ -4003,14 +3697,18 @@ function TaskExtrasPanel({
                   disabled={!canUpdate || busy}
                   onChange={(event) =>
                     void mutate(`/checklists/${item.id}/complete`, {
-                      method: 'PATCH',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ isCompleted: event.target.checked }),
+                      method: "PATCH",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        isCompleted: event.target.checked,
+                      }),
                     })
                   }
                   className="mt-1"
                 />
-                <p className={`min-w-0 flex-1 text-sm font-semibold ${item.isCompleted ? 'text-slate-400 line-through' : 'text-slate-800'}`}>
+                <p
+                  className={`min-w-0 flex-1 text-sm font-semibold ${item.isCompleted ? "text-slate-400 line-through" : "text-slate-800"}`}
+                >
                   {item.title}
                 </p>
                 {canManage && (
@@ -4029,13 +3727,15 @@ function TaskExtrasPanel({
                       disabled={busy}
                       onClick={async () => {
                         const confirmed = await appDialog.confirm({
-                          title: 'Delete checklist item',
-                          message: 'Delete this checklist item?',
-                          confirmLabel: 'Delete',
-                          tone: 'danger',
+                          title: "Delete checklist item",
+                          message: "Delete this checklist item?",
+                          confirmLabel: "Delete",
+                          tone: "danger",
                         });
                         if (!confirmed) return;
-                        void mutate(`/checklists/${item.id}`, { method: 'DELETE' });
+                        void mutate(`/checklists/${item.id}`, {
+                          method: "DELETE",
+                        });
                       }}
                       aria-label="Delete checklist item"
                       className="rounded-lg border border-slate-200 p-2 text-red-600"
@@ -4048,7 +3748,9 @@ function TaskExtrasPanel({
             ))}
 
             {!task.checklist?.length && (
-              <p className="py-5 text-center text-sm text-slate-400">No checklist items yet.</p>
+              <p className="py-5 text-center text-sm text-slate-400">
+                No checklist items yet.
+              </p>
             )}
           </div>
 
@@ -4073,102 +3775,6 @@ function TaskExtrasPanel({
           )}
         </div>
       </div>
-
-      <div className="grid gap-5 xl:grid-cols-2">
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <p className="mb-3 flex items-center gap-2 font-bold text-slate-900">
-            <Tags className="h-4 w-4" /> Tags
-          </p>
-
-          {canManage ? (
-            <div className="flex gap-2">
-              <input
-                value={tagText}
-                onChange={(event) => setTagText(event.target.value)}
-                list={`tag-options-${task.id}`}
-                placeholder="Design, urgent-client"
-                className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2.5 text-sm"
-              />
-              <datalist id={`tag-options-${task.id}`}>
-                {options.tags.map((tag) => (
-                  <option key={tag.id} value={tag.name} />
-                ))}
-              </datalist>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void saveTags()}
-                className="rounded-xl bg-slate-950 px-3 py-2.5 text-xs font-bold text-white"
-              >
-                Save
-              </button>
-            </div>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {(task.tags ?? []).map((item) => (
-                <span key={item.id} className="rounded-full bg-violet-50 px-3 py-1.5 text-xs font-bold text-violet-700">
-                  {item.tag.name}
-                </span>
-              ))}
-              {!task.tags?.length && <span className="text-sm text-slate-400">No tags.</span>}
-            </div>
-          )}
-        </div>
-
-        <div className="rounded-xl border border-slate-200 bg-white p-4">
-          <p className="mb-3 flex items-center gap-2 font-bold text-slate-900">
-            <Link2 className="h-4 w-4" /> Dependencies
-          </p>
-
-          {canManage ? (
-            <>
-              <div className="max-h-44 overflow-y-auto rounded-xl border border-slate-200 p-2">
-                {options.dependencyTasks.map((option) => (
-                  <label
-                    key={option.id}
-                    className="flex items-start gap-2 rounded-lg p-2 hover:bg-slate-50"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={dependencyIds.includes(option.id)}
-                      onChange={(event) =>
-                        setDependencyIds((items) =>
-                          event.target.checked
-                            ? [...new Set([...items, option.id])]
-                            : items.filter((id) => id !== option.id),
-                        )
-                      }
-                      className="mt-1"
-                    />
-                    <span>
-                      <span className="block text-sm font-semibold">{option.title}</span>
-                      <span className="text-xs text-slate-400">{option.project.name} · {option.status.name}</span>
-                    </span>
-                  </label>
-                ))}
-              </div>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void saveDependencies()}
-                className="mt-2 rounded-xl bg-slate-950 px-3 py-2.5 text-xs font-bold text-white"
-              >
-                Save Dependencies
-              </button>
-            </>
-          ) : (
-            <div className="space-y-2">
-              {(task.dependencies ?? []).map((item) => (
-                <div key={item.id} className="rounded-lg bg-slate-50 p-2.5 text-sm">
-                  <span className="font-semibold">{item.dependsOn.title}</span>
-                  <span className="ml-2 text-xs text-slate-400">{item.dependsOn.status.name}</span>
-                </div>
-              ))}
-              {!task.dependencies?.length && <span className="text-sm text-slate-400">No dependencies.</span>}
-            </div>
-          )}
-        </div>
-      </div>
     </section>
   );
 }
@@ -4182,24 +3788,17 @@ function PeopleSummary({
 }) {
   return (
     <div>
-      <h3 className="mb-2 text-sm font-bold">
-        {title}
-      </h3>
+      <h3 className="mb-2 text-sm font-bold">{title}</h3>
 
       <div className="flex flex-wrap gap-2">
-        {people.map(
-          (person) => (
-            <span
-              key={person.id}
-              className="rounded-full bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700"
-            >
-              {
-                person.employee
-                  .fullName
-              }
-            </span>
-          ),
-        )}
+        {people.map((person) => (
+          <span
+            key={person.id}
+            className="rounded-full bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700"
+          >
+            {person.employee.fullName}
+          </span>
+        ))}
       </div>
     </div>
   );
@@ -4210,7 +3809,7 @@ function PeopleSelector({
   name,
   employees,
   checkedIds,
-  emptyText = 'No employees found.',
+  emptyText = "No employees found.",
 }: {
   title: string;
   name: string;
@@ -4225,45 +3824,35 @@ function PeopleSelector({
       </p>
 
       <div className="grid max-h-24 gap-1 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1 sm:grid-cols-2">
-        {employees.map(
-          (employee) => (
-            <label
-              key={employee.id}
-              className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1 hover:bg-slate-50"
-            >
-              <input
-                type="checkbox"
-                name={name}
-                value={employee.id}
-                defaultChecked={checkedIds.includes(
-                  employee.id,
-                )}
-              />
+        {employees.map((employee) => (
+          <label
+            key={employee.id}
+            className="flex min-w-0 items-center gap-2 rounded-md px-2 py-1 hover:bg-slate-50"
+          >
+            <input
+              type="checkbox"
+              name={name}
+              value={employee.id}
+              defaultChecked={checkedIds.includes(employee.id)}
+            />
 
-              <div className="min-w-0">
-                <p className="truncate text-sm font-semibold">
-                  {employee.fullName}
-                  {employee.username
-                    ? ` (@${employee.username})`
-                    : ''}
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold">
+                {employee.fullName}
+                {employee.username ? ` (@${employee.username})` : ""}
+              </p>
+
+              {employee.designation && (
+                <p className="truncate text-[11px] leading-4 text-slate-400">
+                  {employee.designation}
                 </p>
-
-                {employee.designation && (
-                  <p className="truncate text-[11px] leading-4 text-slate-400">
-                    {
-                      employee.designation
-                    }
-                  </p>
-                )}
-              </div>
-            </label>
-          ),
-        )}
+              )}
+            </div>
+          </label>
+        ))}
 
         {!employees.length && (
-          <p className="p-3 text-sm text-slate-400">
-            {emptyText}
-          </p>
+          <p className="p-3 text-sm text-slate-400">{emptyText}</p>
         )}
       </div>
     </div>
@@ -4285,24 +3874,25 @@ function WorkflowNoteDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const noteRequired = action === "request-changes";
+
   const labels: Record<WorkflowAction, string> = {
-    'submit-review': 'Submit for Review',
-    'request-changes': 'Request Changes',
-    'resume-work': 'Resume Work',
-    approve: 'Approve Task',
+    "start-task": "Start Task",
+    "submit-review": "Submit for Review",
+    "request-changes": "Request Changes",
+    "resume-work": "Resume Work",
+    approve: "Approve Task",
   };
 
   return (
-    <div className="fixed inset-0 z-[140] flex items-center justify-center bg-slate-950/45 p-4">
+    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-slate-950/45 p-4">
       <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl">
         <div className="flex items-start justify-between gap-3">
           <div>
             <h3 className="text-base font-bold text-slate-950">
               {labels[action]}
             </h3>
-            <p className="mt-1 text-xs text-slate-500">
-              Add a note if needed.
-            </p>
+            <p className="mt-1 text-xs text-slate-500">Add a note if needed.</p>
           </div>
 
           <button
@@ -4361,12 +3951,10 @@ function Modal({
   onClose: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/45 p-3 sm:p-4">
-      <div className="max-h-[90vh] w-full max-w-4xl overflow-x-hidden overflow-y-auto rounded-2xl bg-white shadow-2xl">
+    <div className="fixed inset-0 z-[200] flex items-start justify-center overflow-y-auto bg-slate-950/45 p-3 sm:p-5">
+      <div className="my-2 max-h-[calc(100vh-1rem)] w-full max-w-4xl overflow-x-hidden overflow-y-auto rounded-2xl bg-white shadow-2xl">
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-4 py-3">
-          <h2 className="text-xl font-bold text-slate-950">
-            {title}
-          </h2>
+          <h2 className="text-xl font-bold text-slate-950">{title}</h2>
 
           <button
             type="button"
@@ -4395,7 +3983,7 @@ function Modal({
 function Input({
   name,
   label,
-  type = 'text',
+  type = "text",
   required = false,
   defaultValue,
 }: {
@@ -4416,16 +4004,8 @@ function Input({
         type={type}
         required={required}
         defaultValue={defaultValue}
-        min={
-          type === 'number'
-            ? 0
-            : undefined
-        }
-        step={
-          type === 'number'
-            ? 'any'
-            : undefined
-        }
+        min={type === "number" ? 0 : undefined}
+        step={type === "number" ? "any" : undefined}
         className="h-9 w-full rounded-lg border border-slate-200 px-2.5 text-sm outline-none focus:border-slate-400"
       />
     </label>
@@ -4445,14 +4025,11 @@ function Select({
   label: string;
   defaultValue?: string;
   value?: string;
-  onChange?: (
-    value: string,
-  ) => void;
+  onChange?: (value: string) => void;
   required?: boolean;
   children: ReactNode;
 }) {
-  const controlled =
-    value !== undefined;
+  const controlled = value !== undefined;
 
   return (
     <label className="block">
@@ -4466,13 +4043,8 @@ function Select({
         {...(controlled
           ? {
               value,
-              onChange: (
-                event: ChangeEvent<HTMLSelectElement>,
-              ) =>
-                onChange?.(
-                  event.target
-                    .value,
-                ),
+              onChange: (event: ChangeEvent<HTMLSelectElement>) =>
+                onChange?.(event.target.value),
             }
           : {
               defaultValue,
@@ -4506,7 +4078,7 @@ function AutoGrowTextarea({
         defaultValue={defaultValue}
         onInput={(event) => {
           const element = event.currentTarget;
-          element.style.height = '36px';
+          element.style.height = "36px";
           element.style.height = `${Math.max(36, element.scrollHeight)}px`;
         }}
         className="min-h-9 max-h-32 w-full resize-none overflow-y-auto rounded-lg border border-slate-200 px-2.5 py-2 text-sm outline-none focus:border-slate-400"
@@ -4540,31 +4112,19 @@ function Textarea({
   );
 }
 
-function DetailCard({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
+function DetailCard({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl border border-slate-200 p-4">
       <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
         {label}
       </p>
 
-      <p className="mt-2 text-sm font-semibold text-slate-900">
-        {value}
-      </p>
+      <p className="mt-2 text-sm font-semibold text-slate-900">{value}</p>
     </div>
   );
 }
 
-function StatusBadge({
-  status,
-}: {
-  status: TaskStatus;
-}) {
+function StatusBadge({ status }: { status: TaskStatus }) {
   return (
     <span className="inline-flex rounded-full bg-violet-50 px-2.5 py-1 text-xs font-semibold text-violet-700">
       {status.name}
@@ -4583,138 +4143,87 @@ function formatDuration(totalSeconds: number) {
   return `${seconds}s`;
 }
 
-function formatDateTime(
-  value?: string | null,
-) {
+function formatDateTime(value?: string | null) {
   if (!value) {
-    return '—';
+    return "—";
   }
 
   const date = new Date(value);
 
-  if (
-    Number.isNaN(
-      date.getTime(),
-    )
-  ) {
-    return '—';
+  if (Number.isNaN(date.getTime())) {
+    return "—";
   }
 
-  return date.toLocaleString(
-    'en-IN',
-    {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    },
-  );
+  return date.toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
-function toDateInput(
-  value?: string | null,
-) {
+function toDateInput(value?: string | null) {
   if (!value) {
-    return '';
+    return "";
   }
 
   return value.slice(0, 10);
 }
 
-function formatDateOnly(
-  value?: string | null,
-) {
-  if (!value) return '—';
+function formatDateOnly(value?: string | null) {
+  if (!value) return "—";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '—';
-  return new Intl.DateTimeFormat('en-GB', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
   }).format(date);
 }
 
-function toDateTimeInput(
-  value?: string | null,
-) {
+function toDateTimeInput(value?: string | null) {
   if (!value) {
-    return '';
+    return "";
   }
 
   const date = new Date(value);
 
-  if (
-    Number.isNaN(
-      date.getTime(),
-    )
-  ) {
-    return '';
+  if (Number.isNaN(date.getTime())) {
+    return "";
   }
 
-  const pad = (
-    number: number,
-  ) =>
-    String(number).padStart(
-      2,
-      '0',
-    );
+  const pad = (number: number) => String(number).padStart(2, "0");
 
-  return `${date.getFullYear()}-${pad(
-    date.getMonth() + 1,
-  )}-${pad(
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
     date.getDate(),
-  )}T${pad(
-    date.getHours(),
-  )}:${pad(
-    date.getMinutes(),
-  )}`;
+  )}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-function normalizeDateTime(
-  value: string,
-) {
+function normalizeDateTime(value: string) {
   if (!value) {
-    return '';
+    return "";
   }
 
   const date = new Date(value);
 
-  if (
-    Number.isNaN(
-      date.getTime(),
-    )
-  ) {
-    return '';
+  if (Number.isNaN(date.getTime())) {
+    return "";
   }
 
   return date.toISOString();
 }
 
-function isOverdue(
-  task: Task,
-) {
+function isOverdue(task: Task) {
   if (!task.dueAt) {
     return false;
   }
 
   if (
-    [
-      'DONE',
-      'COMPLETED',
-      'CANCELLED',
-      'ARCHIVED',
-    ].includes(
-      task.status.code,
-    )
+    ["DONE", "COMPLETED", "CANCELLED", "ARCHIVED"].includes(task.status.code)
   ) {
     return false;
   }
 
-  return (
-    new Date(task.dueAt) <
-    new Date()
-  );
+  return new Date(task.dueAt) < new Date();
 }
-
-

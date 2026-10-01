@@ -1096,6 +1096,8 @@ export class ProjectsService {
                 startDate,
                 deadline,
 
+                isRecurring: Boolean(dto.isRecurring),
+
                 // Project priority is system-managed and always HIGH.
                 priority:
                   Priority.HIGH,
@@ -1374,6 +1376,10 @@ export class ProjectsService {
             ...(dto.deadline !==
               undefined && {
               deadline,
+            }),
+
+            ...(dto.isRecurring !== undefined && {
+              isRecurring: dto.isRecurring,
             }),
 
             // Project priority remains system-managed on every update.
